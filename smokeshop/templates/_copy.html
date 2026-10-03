@@ -1,0 +1,13 @@
+<script>
+  document.querySelectorAll('[data-copy]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var input = document.getElementById(btn.dataset.copy);
+      var done = function () { btn.classList.remove('ghost'); setTimeout(function () { btn.classList.add('ghost'); }, 1200); };
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(input.value).then(done, function () { input.select(); });
+      } else {
+        input.select(); document.execCommand('copy'); done();
+      }
+    });
+  });
+</script>

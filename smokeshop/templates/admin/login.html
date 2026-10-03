@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Acceso · {{ settings.store_name }}{% endblock %}
+{% block content %}
+<section class="hero">
+  <svg class="anubis" aria-hidden="true"><use href="#i-anubis"/></svg>
+  <div class="eyebrow">Área reservada</div>
+  <h1>{% if first_run %}Consagra tu llave{% else %}Entrada al templo{% endif %}</h1>
+  {% if first_run %}<p>Primera vez: crea la contraseña del panel de administración.</p>{% endif %}
+</section>
+<form method="post" class="card gilded narrow">
+  <input type="hidden" name="csrf" value="{{ csrf_token }}">
+  <div class="field">
+    <label for="password">Contraseña</label>
+    <input id="password" name="password" type="password" autocomplete="{{ 'new-password' if first_run else 'current-password' }}" required autofocus>
+  </div>
+  {% if first_run %}
+  <div class="field">
+    <label for="confirm">Repite la contraseña</label>
+    <input id="confirm" name="confirm" type="password" autocomplete="new-password" required>
+  </div>
+  {% endif %}
+  <button class="btn block" type="submit">{% if first_run %}Crear y entrar{% else %}Entrar{% endif %}</button>
+</form>
+{% endblock %}

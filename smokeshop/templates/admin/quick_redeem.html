@@ -1,0 +1,18 @@
+{% extends "admin/_layout.html" %}
+{% block section %}canjear{% endblock %}
+{% block title %}Canjear · {{ settings.store_name }}{% endblock %}
+{% block content %}
+<section class="hero">
+  <svg class="anubis" aria-hidden="true"><use href="#i-eye"/></svg>
+  <h1>Caja rápida</h1>
+  <p>Escribe el código que te muestra el cliente para ver y canjear sus descuentos.</p>
+</section>
+<form method="post" class="card gilded narrow">
+  <input type="hidden" name="csrf" value="{{ csrf_token }}">
+  <div class="field">
+    <label for="code">Código del cliente</label>
+    <input class="code-input" id="code" name="code" type="text" value="{{ code }}" placeholder="{{ settings.code_prefix }}-XXXXX" autocomplete="off" autocapitalize="characters" required autofocus>
+  </div>
+  <button class="btn block" type="submit">Buscar</button>
+</form>
+{% endblock %}

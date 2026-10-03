@@ -1,0 +1,109 @@
+{% extends "admin/_layout.html" %}
+{% block section %}clientes{% endblock %}
+{% block title %}{{ customer.name }} · {{ settings.store_name }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>{{ customer.name }}</h1>
+  <a class="btn small ghost" href="{{ url_for('admin_customer_new', ref=customer.code) }}"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Registrar referido</a>
+</div>
+
+<div class="grid grid-2">
+  <section class="card gilded">
+    <div class="code-plate"><div class="code">{{ customer.code }}</div></div>
+    <div class="stats mt">
+      <div class="stat"><div class="num">{{ referrals|length }}</div><div class="lbl">Referidos</div></div>
+      <div class="stat"><div class="num">{{ rewards|selectattr('redeemed_at', 'none')|list|length }}</div><div class="lbl">Descuentos</div></div>
+    </div>
+    <p class="mt muted" style="font-size:.9rem;margin-bottom:8px">
+      Tel. {{ customer.phone }} · Desde {{ customer.created_at|fecha }}<br>
+      {% if customer.referrer_name %}Referido por <a href="{{ url_for('admin_customer_detail', customer_id=customer.referrer_id) }}">{{ customer.referrer_name }}</a>{% else %}Llegó por su cuenta{% endif %}
+    </p>
+    {% if customer.notes %}<p style="font-size:.92rem">{{ customer.notes }}</p>{% endif %}
+    <div class="share-box">
+      <input type="text" readonly value="{{ invite_url }}" id="invite" aria-label="Enlace de invitación">
+      <button class="btn small ghost" type="button" data-copy="invite" aria-label="Copiar"><svg class="icon"><use href="#i-copy"/></svg></button>
+    </div>
+    <a class="btn block mt" target="_blank" rel="noopener"
+       href="https://wa.me/{{ customer.phone }}?text={{ ('Hola ' ~ (customer.name|first_name) ~ ', tu código de ' ~ settings.store_name ~ ' es ' ~ customer.code ~ '. Compártelo: ' ~ invite_url)|urlencode }}">
+      <svg class="icon" aria-hidden="true"><use href="#i-share"/></svg>Enviar código por WhatsApp
+    </a>
+  </section>
+
+  <section class="card">
+    <h2><svg class="icon" aria-hidden="true"><use href="#i-ticket"/></svg> Descuentos</h2>
+    {% for r in rewards %}
+      <div class="reward{% if r.redeemed_at %} used{% endif %}">
+        <div class="pct">{{ r.percent }}%</div>
+        <div class="info">
+          <strong>{{ reward_labels[r.kind] }}</strong>
+          <small class="muted" style="display:block">
+            {% if r.note %}{{ r.note }} · {% endif %}
+            {% if r.source_name %}{{ r.source_name }} · {% endif %}
+            {% if r.redeemed_at %}Canjeado {{ r.redeemed_at|fecha }}{% else %}{{ r.created_at|fecha }}{% endif %}
+          </small>
+        </div>
+        {% if not r.redeemed_at %}
+        <form method="post" action="{{ url_for('admin_reward_redeem', reward_id=r.id) }}" class="inline"
+              onsubmit="return confirm('¿Canjear {{ r.percent }} % ahora?')">
+          <input type="hidden" name="csrf" value="{{ csrf_token }}">
+          <button class="btn small" type="submit">Canjear</button>
+        </form>
+        {% endif %}
+      </div>
+    {% else %}
+      <p class="muted">Sin descuentos todavía.</p>
+    {% endfor %}
+
+    <details class="mt">
+      <summary class="muted" style="cursor:pointer">Regalar un descuento</summary>
+      <form method="post" action="{{ url_for('admin_reward_gift', customer_id=customer.id) }}" class="mt">
+        <input type="hidden" name="csrf" value="{{ csrf_token }}">
+        <div class="grid" style="grid-template-columns:110px 1fr">
+          <div class="field"><label for="percent">%</label><input id="percent" name="percent" type="number" min="1" max="100" value="10" required></div>
+          <div class="field"><label for="note">Motivo</label><input id="note" name="note" type="text" placeholder="Cumpleaños, cliente fiel…"></div>
+        </div>
+        <button class="btn small lapis" type="submit">Regalar</button>
+      </form>
+    </details>
+  </section>
+</div>
+
+<section class="card mt">
+  <h2><svg class="icon" aria-hidden="true"><use href="#i-users"/></svg> Sus referidos</h2>
+  {% if referrals %}
+  <ul class="list">
+    {% for c in referrals %}
+    <li>
+      <a class="rowlink main" href="{{ url_for('admin_customer_detail', customer_id=c.id) }}">
+        <strong>{{ c.name }}</strong><small>{{ c.code }} · {{ c.created_at|fecha }}</small>
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+    <p class="muted" style="margin:0">Aún no ha traído a nadie.</p>
+  {% endif %}
+</section>
+
+<section class="card mt">
+  <details>
+    <summary class="muted" style="cursor:pointer"><svg class="icon" aria-hidden="true"><use href="#i-edit"/></svg> Editar datos</summary>
+    <form method="post" action="{{ url_for('admin_customer_edit', customer_id=customer.id) }}" class="mt">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <div class="field"><label for="e-name">Nombre</label><input id="e-name" name="name" type="text" value="{{ customer.name }}" required></div>
+      <div class="field"><label for="e-phone">Teléfono</label><input id="e-phone" name="phone" type="tel" value="{{ customer.phone }}" required></div>
+      <div class="field"><label for="e-notes">Notas</label><textarea id="e-notes" name="notes">{{ customer.notes }}</textarea></div>
+      <button class="btn small" type="submit">Guardar</button>
+    </form>
+  </details>
+  <details class="danger-zone mt">
+    <summary>Eliminar cliente</summary>
+    <form method="post" action="{{ url_for('admin_customer_delete', customer_id=customer.id) }}"
+          onsubmit='return confirm({{ ("¿Eliminar a " ~ customer.name ~ " y todos sus descuentos? Sus referidos se conservan.")|tojson }})'>
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <button class="btn small danger" type="submit">Eliminar definitivamente</button>
+    </form>
+  </details>
+</section>
+{% endblock %}
+{% block scripts %}{% include "_copy.html" %}{% endblock %}

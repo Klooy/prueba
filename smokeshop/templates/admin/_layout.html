@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block body_class %}admin{% endblock %}
+{% block brand_href %}{{ url_for('admin_dashboard') }}{% endblock %}
+{% block top_links %}
+  <a href="{{ url_for('menu') }}" target="_blank" rel="noopener">
+    <svg class="icon" aria-hidden="true"><use href="#i-eye"/></svg>Ver menú
+  </a>
+{% endblock %}
+{% block footer %}
+{% set section = self.section() | trim %}
+<nav class="admin-nav" aria-label="Panel">
+  <ul>
+    <li><a href="{{ url_for('admin_dashboard') }}" {% if section == 'inicio' %}aria-current="page"{% endif %}>
+      <svg class="icon" aria-hidden="true"><use href="#i-temple"/></svg>Inicio</a></li>
+    <li><a href="{{ url_for('admin_customers') }}" {% if section == 'clientes' %}aria-current="page"{% endif %}>
+      <svg class="icon" aria-hidden="true"><use href="#i-users"/></svg>Clientes</a></li>
+    <li><a href="{{ url_for('admin_quick_redeem') }}" {% if section == 'canjear' %}aria-current="page"{% endif %}>
+      <svg class="icon" aria-hidden="true"><use href="#i-ticket"/></svg>Canjear</a></li>
+    <li><a href="{{ url_for('admin_products') }}" {% if section == 'menu' %}aria-current="page"{% endif %}>
+      <svg class="icon" aria-hidden="true"><use href="#i-scroll"/></svg>Menú</a></li>
+    <li><a href="{{ url_for('admin_settings') }}" {% if section == 'ajustes' %}aria-current="page"{% endif %}>
+      <svg class="icon" aria-hidden="true"><use href="#i-gear"/></svg>Ajustes</a></li>
+  </ul>
+</nav>
+{% endblock %}
+{% block section %}{% endblock %}

@@ -1,0 +1,62 @@
+{% extends "admin/_layout.html" %}
+{% block section %}inicio{% endblock %}
+{% block title %}Panel · {{ settings.store_name }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Panel del templo</h1>
+  <form method="post" action="{{ url_for('admin_logout') }}" class="inline">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    <button class="btn small ghost" type="submit"><svg class="icon" aria-hidden="true"><use href="#i-logout"/></svg>Salir</button>
+  </form>
+</div>
+
+<div class="stats">
+  <div class="stat"><div class="num">{{ stats.customers }}</div><div class="lbl">Clientes</div></div>
+  <div class="stat"><div class="num">{{ stats.month }}</div><div class="lbl">Referidos este mes</div></div>
+  <div class="stat"><div class="num">{{ stats.pending }}</div><div class="lbl">Descuentos sin usar</div></div>
+  <div class="stat"><div class="num">{{ stats.products }}</div><div class="lbl">En el menú hoy</div></div>
+</div>
+
+<div class="btn-row mt">
+  <a class="btn" href="{{ url_for('admin_customer_new') }}"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Nuevo cliente</a>
+  <a class="btn lapis" href="{{ url_for('admin_product_form') }}"><svg class="icon" aria-hidden="true"><use href="#i-scroll"/></svg>Subir novedad</a>
+</div>
+
+<div class="grid grid-2 mt">
+  <section class="card gilded">
+    <h2><svg class="icon" aria-hidden="true"><use href="#i-star"/></svg> Top referidores</h2>
+    {% if top %}
+    <ol class="list">
+      {% for c in top %}
+      <li>
+        <a class="rowlink main" href="{{ url_for('admin_customer_detail', customer_id=c.id) }}">
+          <strong>{{ loop.index }}. {{ c.name }}</strong><small>{{ c.code }}</small>
+        </a>
+        <span class="badge">{{ c.total }} ref.</span>
+      </li>
+      {% endfor %}
+    </ol>
+    {% else %}
+      <p class="muted">Aún nadie ha referido a otro cliente.</p>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <h2><svg class="icon" aria-hidden="true"><use href="#i-users"/></svg> Últimos registros</h2>
+    {% if recent %}
+    <ul class="list">
+      {% for c in recent %}
+      <li>
+        <a class="rowlink main" href="{{ url_for('admin_customer_detail', customer_id=c.id) }}">
+          <strong>{{ c.name }}</strong>
+          <small>{% if c.referrer_name %}Referido por {{ c.referrer_name }}{% else %}Llegó por su cuenta{% endif %} · {{ c.created_at|fecha }}</small>
+        </a>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+      <p class="muted">Registra a tu primer cliente para empezar.</p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

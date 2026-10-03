@@ -1,0 +1,6 @@
+instance/
+__pycache__/
+.pytest_cache/
+static/uploads/*
+!static/uploads/.gitkeep
+*.db

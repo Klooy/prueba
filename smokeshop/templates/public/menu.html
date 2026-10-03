@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Menú del día · {{ settings.store_name }}{% endblock %}
+{% block top_links %}{% include "public/_links.html" %}{% endblock %}
+{% block content %}
+{% set dias = ['lunes','martes','miércoles','jueves','viernes','sábado','domingo'] %}
+{% set meses = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'] %}
+<section class="hero">
+  <svg class="anubis" aria-hidden="true"><use href="#i-anubis"/></svg>
+  <div class="eyebrow">{{ dias[today.weekday()] }} {{ today.day }} de {{ meses[today.month - 1] }}</div>
+  <h1>Menú del día</h1>
+  <p>{{ settings.tagline }}</p>
+</section>
+
+<div class="divider" aria-hidden="true"><svg class="icon"><use href="#i-eye"/></svg></div>
+
+{% if products %}
+  {% if categories|length > 1 %}
+  <div class="chips" role="toolbar" aria-label="Filtrar por categoría">
+    <button class="chip" type="button" data-filter="" aria-pressed="true">Todo</button>
+    {% for c in categories %}
+      <button class="chip" type="button" data-filter="{{ c }}" aria-pressed="false">{{ c }}</button>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="products">
+    {% for p in products %}
+    <article class="card product{% if p.featured %} gilded{% endif %}" data-category="{{ p.category }}">
+      {% if p.featured %}<span class="ribbon">Destacado</span>{% endif %}
+      <div class="media">
+        {% if p.image %}
+          <img src="{{ url_for('static', filename='uploads/' ~ p.image) }}" alt="{{ p.title }}" loading="lazy">
+        {% else %}
+          <svg class="icon" aria-hidden="true"><use href="#i-scarab"/></svg>
+        {% endif %}
+      </div>
+      <div class="body">
+        {% if p.category %}<span class="tag">{{ p.category }}</span>{% endif %}
+        <div class="row">
+          <h3>{{ p.title }}</h3>
+          {% if p.price %}<span class="price">{{ p.price }}</span>{% endif %}
+        </div>
+        {% if p.description %}<p>{{ p.description }}</p>{% endif %}
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="card empty">
+    <svg class="icon" aria-hidden="true"><use href="#i-scarab"/></svg>
+    <p>Hoy los dioses aún preparan el menú.<br>Vuelve pronto.</p>
+  </div>
+{% endif %}
+
+<section class="card gilded mt center">
+  <h2>Trae a tus amigos, gana descuentos</h2>
+  <p class="muted">Cada amigo que llegue con tu código te da
+    <strong style="color:var(--gold-bright)">{{ settings.referrer_discount }}&nbsp;%</strong> de descuento
+    {% if settings.welcome_discount != '0' %}y quien llega con tu código recibe {{ settings.welcome_discount }}&nbsp;% en su primera compra{% endif %}.</p>
+  <div class="btn-row" style="justify-content:center">
+    <a class="btn" href="{{ url_for('my_code') }}"><svg class="icon" aria-hidden="true"><use href="#i-ankh"/></svg>Consultar mi código</a>
+    {% if settings.whatsapp %}
+    <a class="btn ghost" href="https://wa.me/{{ settings.whatsapp }}" target="_blank" rel="noopener">Escríbenos</a>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script>
+  document.querySelectorAll('.chip').forEach(function (chip) {
+    chip.addEventListener('click', function () {
+      var f = chip.dataset.filter;
+      document.querySelectorAll('.chip').forEach(function (c) { c.setAttribute('aria-pressed', c === chip); });
+      document.querySelectorAll('.product').forEach(function (p) {
+        p.hidden = !!f && p.dataset.category !== f;
+      });
+    });
+  });
+</script>
+{% endblock %}
