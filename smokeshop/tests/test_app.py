@@ -179,7 +179,8 @@ def test_demo_seed_and_admin_password_env(tmp_path, monkeypatch):
         seed_demo()  # una segunda vez no duplica
     client = app.test_client()
     html = client.get("/").get_data(as_text=True)
-    assert html.count('class="card product') == 5
+    from app import DEMO_PRODUCTS
+    assert html.count('class="card product') == len(DEMO_PRODUCTS)
     assert post(client, "/admin/login", {"password": "desdeenv"}).status_code == 302
     assert "Ana Ramírez" in client.get("/admin").get_data(as_text=True)
 
@@ -191,3 +192,21 @@ def test_uploaded_image_served(client):
          content_type="multipart/form-data")
     src = re.search(r'src="(/uploads/[^"]+)"', client.get("/").get_data(as_text=True)).group(1)
     assert client.get(src).data.startswith(b"\x89PNG")
+
+
+def test_prices_in_cop(client):
+    from app import format_cop, normalize_price
+    assert normalize_price("$ 45.000") == "45000"
+    assert normalize_price("45,000 COP") == "45000"
+    assert normalize_price("Desde $20.000") == "Desde $20.000"
+    assert format_cop("1250000") == "$1.250.000"
+    assert format_cop("Consultar") is None
+    login(client)
+    post(client, "/admin/menu/nuevo", {"title": "Bong", "price": "240.000", "active": "1"})
+    html = client.get("/").get_data(as_text=True)
+    assert "$240.000<small>COP</small>" in html
+
+
+def test_admin_entry_visible_on_public_pages(client):
+    html = client.get("/").get_data(as_text=True)
+    assert html.count('href="/admin"') >= 2

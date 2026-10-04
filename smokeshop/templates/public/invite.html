@@ -3,9 +3,10 @@
 {% block top_links %}{% include "public/_links.html" %}{% endblock %}
 {% block content %}
 <section class="hero">
-  <svg class="anubis" aria-hidden="true"><use href="#i-anubis"/></svg>
+  <div class="embers" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+  {% include "_emblem.html" %}
   <div class="eyebrow">Invitación al templo</div>
-  <h1>{{ referrer.name|first_name }} te abre las puertas</h1>
+  <h1 class="gradient-text">{{ referrer.name|first_name }} te abre las puertas</h1>
   {% if settings.welcome_discount != '0' %}
     <p>Presenta este código en tu primera visita y recibe <strong style="color:var(--gold-bright)">{{ settings.welcome_discount }}&nbsp;% de descuento</strong>.</p>
   {% else %}
@@ -14,6 +15,6 @@
 </section>
 <div class="narrow">
   <div class="code-plate"><div class="code">{{ referrer.code }}</div></div>
-  <a class="btn block mt" href="{{ url_for('menu') }}"><svg class="icon" aria-hidden="true"><use href="#i-scroll"/></svg>Ver el menú del día</a>
+  <a class="btn leaf block mt" href="{{ url_for('menu') }}"><svg class="icon" aria-hidden="true"><use href="#i-scroll"/></svg>Ver el menú del día</a>
 </div>
 {% endblock %}

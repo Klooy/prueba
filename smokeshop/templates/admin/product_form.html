@@ -11,8 +11,8 @@
   </div>
   <div class="grid" style="grid-template-columns:1fr 1fr">
     <div class="field">
-      <label for="price">Precio <span class="muted">(texto libre)</span></label>
-      <input id="price" name="price" type="text" value="{{ product.price }}" placeholder="$250">
+      <label for="price">Precio <span class="muted">(COP)</span></label>
+      <div class="input-prefix"><span>$</span><input id="price" name="price" type="text" inputmode="numeric" value="{{ product.price }}" placeholder="45000"></div>
     </div>
     <div class="field">
       <label for="category">Categoría</label>

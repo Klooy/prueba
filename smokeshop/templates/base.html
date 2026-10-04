@@ -3,12 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0b0a09">
+  <meta name="theme-color" content="#050705">
   <title>{% block title %}{{ settings.store_name }}{% endblock %}</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpath fill='%23d4a537' d='M34 96 L30 62 C28 52 28 44 31 36 L36 6 L46 30 L50 4 L57 34 C62 36 66 39 70 43 L92 54 C95 55.5 95 59 92 60 L74 62 C68 63 64 64 61 66 L58 74 L62 96 Z'/%3E%3C/svg%3E">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-50 -70 100 90'%3E%3Cg fill='%233ddc6a'%3E%3Cpath id='l' d='M0 0 C9 -18 9 -40 0 -62 C-9 -40 -9 -18 0 0Z'/%3E%3Cuse href='%23l' transform='rotate(32) scale(.85)'/%3E%3Cuse href='%23l' transform='rotate(-32) scale(.85)'/%3E%3Cuse href='%23l' transform='rotate(64) scale(.65)'/%3E%3Cuse href='%23l' transform='rotate(-64) scale(.65)'/%3E%3Crect x='-2' y='0' width='4' height='16'/%3E%3C/g%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Inter:wght@400;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700;900&family=Cinzel:wght@600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/anubis.css') }}">
 </head>
 <body class="{% block body_class %}{% endblock %}">
@@ -17,7 +17,7 @@
   <header class="site-header">
     <div class="wrap">
       <a class="brand" href="{% block brand_href %}{{ url_for('menu') }}{% endblock %}">
-        <svg class="icon" aria-hidden="true"><use href="#i-anubis"/></svg>
+        <svg class="icon" aria-hidden="true"><use href="#i-logo"/></svg>
         <span>{{ settings.store_name }}</span>
       </a>
       <nav class="top-links">{% block top_links %}{% endblock %}</nav>
@@ -44,10 +44,11 @@
   <footer class="site-footer">
     <div class="glyphs" aria-hidden="true">
       <svg class="icon"><use href="#i-ankh"/></svg>
+      <svg class="icon leafy"><use href="#i-leaf"/></svg>
       <svg class="icon"><use href="#i-eye"/></svg>
-      <svg class="icon"><use href="#i-scarab"/></svg>
     </div>
-    {{ settings.store_name }} · Solo para mayores de edad
+    {{ settings.store_name }} · Solo para mayores de 18 años<br>
+    <a class="staff-link" href="{{ url_for('admin_dashboard') }}"><svg class="icon" aria-hidden="true"><use href="#i-lock"/></svg>Acceso administrador</a>
   </footer>
   {% endblock %}
   {% block scripts %}{% endblock %}

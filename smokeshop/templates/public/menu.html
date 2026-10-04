@@ -1,17 +1,19 @@
 {% extends "base.html" %}
+{% from "_macros.html" import price %}
 {% block title %}Menú del día · {{ settings.store_name }}{% endblock %}
 {% block top_links %}{% include "public/_links.html" %}{% endblock %}
 {% block content %}
 {% set dias = ['lunes','martes','miércoles','jueves','viernes','sábado','domingo'] %}
 {% set meses = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'] %}
 <section class="hero">
-  <svg class="anubis" aria-hidden="true"><use href="#i-anubis"/></svg>
+  <div class="embers" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+  {% include "_emblem.html" %}
   <div class="eyebrow">{{ dias[today.weekday()] }} {{ today.day }} de {{ meses[today.month - 1] }}</div>
-  <h1>Menú del día</h1>
+  <h1 class="gradient-text">Menú del día</h1>
   <p>{{ settings.tagline }}</p>
 </section>
 
-<div class="divider" aria-hidden="true"><svg class="icon"><use href="#i-eye"/></svg></div>
+<div class="divider" aria-hidden="true"><svg class="icon"><use href="#i-leaf"/></svg></div>
 
 {% if products %}
   {% if categories|length > 1 %}
@@ -26,39 +28,38 @@
   <div class="products">
     {% for p in products %}
     <article class="card product{% if p.featured %} gilded{% endif %}" data-category="{{ p.category }}">
-      {% if p.featured %}<span class="ribbon">Destacado</span>{% endif %}
       <div class="media">
+        {% if p.featured %}<span class="ribbon"><svg class="icon" aria-hidden="true"><use href="#i-star"/></svg>Destacado</span>{% endif %}
         {% if p.image %}
           <img src="{{ url_for('uploaded', name=p.image) }}" alt="{{ p.title }}" loading="lazy">
         {% else %}
-          <svg class="icon" aria-hidden="true"><use href="#i-scarab"/></svg>
+          <svg class="icon" aria-hidden="true"><use href="#i-leaf"/></svg>
         {% endif %}
       </div>
       <div class="body">
         {% if p.category %}<span class="tag">{{ p.category }}</span>{% endif %}
-        <div class="row">
-          <h3>{{ p.title }}</h3>
-          {% if p.price %}<span class="price">{{ p.price }}</span>{% endif %}
-        </div>
+        <h3>{{ p.title }}</h3>
         {% if p.description %}<p>{{ p.description }}</p>{% endif %}
+        {% if p.price %}<div class="foot">{{ price(p.price) }}</div>{% endif %}
       </div>
     </article>
     {% endfor %}
   </div>
 {% else %}
   <div class="card empty">
-    <svg class="icon" aria-hidden="true"><use href="#i-scarab"/></svg>
-    <p>Hoy los dioses aún preparan el menú.<br>Vuelve pronto.</p>
+    <svg class="icon" aria-hidden="true"><use href="#i-leaf"/></svg>
+    <p>Hoy los dioses aún están cosechando.<br>Vuelve pronto.</p>
   </div>
 {% endif %}
 
-<section class="card gilded mt center">
-  <h2>Trae a tus amigos, gana descuentos</h2>
-  <p class="muted">Cada amigo que llegue con tu código te da
-    <strong style="color:var(--gold-bright)">{{ settings.referrer_discount }}&nbsp;%</strong> de descuento
-    {% if settings.welcome_discount != '0' %}y quien llega con tu código recibe {{ settings.welcome_discount }}&nbsp;% en su primera compra{% endif %}.</p>
+<section class="card gilded cta mt">
+  <div class="eyebrow" style="color:var(--leaf);letter-spacing:.28em;font-size:.72rem;text-transform:uppercase">Programa de referidos</div>
+  <h2 style="margin:.4em 0 0">Comparte el humo sagrado</h2>
+  <div class="big gradient-text">{{ settings.referrer_discount }}%<small> OFF</small></div>
+  <p class="muted">por cada amigo que llegue con tu código{% if settings.welcome_discount != '0' %},
+    y tu invitado se lleva {{ settings.welcome_discount }}&nbsp;% en su primera compra{% endif %}.</p>
   <div class="btn-row" style="justify-content:center">
-    <a class="btn" href="{{ url_for('my_code') }}"><svg class="icon" aria-hidden="true"><use href="#i-ankh"/></svg>Consultar mi código</a>
+    <a class="btn leaf" href="{{ url_for('my_code') }}"><svg class="icon" aria-hidden="true"><use href="#i-ankh"/></svg>Consultar mi código</a>
     {% if settings.whatsapp %}
     <a class="btn ghost" href="https://wa.me/{{ settings.whatsapp }}" target="_blank" rel="noopener">Escríbenos</a>
     {% endif %}

@@ -2,9 +2,9 @@
 {% block title %}Acceso · {{ settings.store_name }}{% endblock %}
 {% block content %}
 <section class="hero">
-  <svg class="anubis" aria-hidden="true"><use href="#i-anubis"/></svg>
+  {% include "_emblem.html" %}
   <div class="eyebrow">Área reservada</div>
-  <h1>{% if first_run %}Consagra tu llave{% else %}Entrada al templo{% endif %}</h1>
+  <h1 class="gradient-text">{% if first_run %}Consagra tu llave{% else %}Entrada al templo{% endif %}</h1>
   {% if first_run %}<p>Primera vez: crea la contraseña del panel de administración.</p>{% endif %}
 </section>
 <form method="post" class="card gilded narrow">
