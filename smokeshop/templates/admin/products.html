@@ -1,0 +1,48 @@
+{% extends "admin/_layout.html" %}
+{% block section %}menu{% endblock %}
+{% block title %}Menú del día · {{ settings.store_name }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Menú del día</h1>
+  <a class="btn small" href="{{ url_for('admin_product_form') }}"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Novedad</a>
+</div>
+<p class="muted" style="font-size:.9rem">Lo que esté <strong>visible</strong> aparece en el menú público. Ocultar no borra: puedes reactivarlo otro día.</p>
+
+<div class="card">
+  {% if products %}
+  <ul class="list">
+    {% for p in products %}
+    <li class="{% if not p.active %}off{% endif %}">
+      {% if p.image %}
+        <img class="thumb" src="{{ url_for('uploaded', name=p.image) }}" alt="">
+      {% else %}
+        <span class="thumb"><svg class="icon" aria-hidden="true"><use href="#i-scarab"/></svg></span>
+      {% endif %}
+      <a class="rowlink main" href="{{ url_for('admin_product_form', product_id=p.id) }}">
+        <strong>{% if p.featured %}<svg class="icon" style="color:var(--gold)" aria-label="Destacado"><use href="#i-star"/></svg> {% endif %}{{ p.title }}</strong>
+        <small>{{ p.category or 'Sin categoría' }}{% if p.price %} · {{ p.price }}{% endif %}</small>
+      </a>
+      <form method="post" action="{{ url_for('admin_product_toggle', product_id=p.id) }}" class="inline">
+        <input type="hidden" name="csrf" value="{{ csrf_token }}">
+        <button class="btn small {{ 'ghost' if p.active else 'lapis' }}" type="submit">{{ 'Ocultar' if p.active else 'Mostrar' }}</button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+    <div class="empty">
+      <svg class="icon" aria-hidden="true"><use href="#i-scarab"/></svg>
+      <p>Aún no has subido novedades.</p>
+      <a class="btn" href="{{ url_for('admin_product_form') }}">Subir la primera</a>
+    </div>
+  {% endif %}
+</div>
+
+{% if products %}
+<form method="post" action="{{ url_for('admin_products_clear') }}" class="mt center"
+      onsubmit="return confirm('¿Ocultar todos los productos del menú de hoy?')">
+  <input type="hidden" name="csrf" value="{{ csrf_token }}">
+  <button class="btn small danger" type="submit">Vaciar menú para mañana</button>
+</form>
+{% endif %}
+{% endblock %}

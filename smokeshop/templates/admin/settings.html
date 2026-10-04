@@ -1,0 +1,35 @@
+{% extends "admin/_layout.html" %}
+{% block section %}ajustes{% endblock %}
+{% block title %}Ajustes · {{ settings.store_name }}{% endblock %}
+{% block content %}
+<div class="page-head"><h1>Ajustes</h1></div>
+<form method="post" class="narrow">
+  <input type="hidden" name="csrf" value="{{ csrf_token }}">
+
+  <section class="card gilded">
+    <h2>Tienda</h2>
+    <div class="field"><label for="store_name">Nombre</label><input id="store_name" name="store_name" type="text" value="{{ settings.store_name }}"></div>
+    <div class="field"><label for="tagline">Frase del menú</label><input id="tagline" name="tagline" type="text" value="{{ settings.tagline }}"></div>
+    <div class="field"><label for="whatsapp">WhatsApp de la tienda <span class="muted">(con código de país)</span></label><input id="whatsapp" name="whatsapp" type="tel" value="{{ settings.whatsapp }}" placeholder="5215512345678"></div>
+    <div class="field"><label for="code_prefix">Prefijo de códigos</label><input id="code_prefix" name="code_prefix" type="text" maxlength="6" value="{{ settings.code_prefix }}"></div>
+  </section>
+
+  <section class="card">
+    <h2>Recompensas</h2>
+    <div class="grid" style="grid-template-columns:1fr 1fr">
+      <div class="field"><label for="referrer_discount">% para quien refiere</label><input id="referrer_discount" name="referrer_discount" type="number" min="0" max="100" value="{{ settings.referrer_discount }}"></div>
+      <div class="field"><label for="welcome_discount">% bienvenida al nuevo</label><input id="welcome_discount" name="welcome_discount" type="number" min="0" max="100" value="{{ settings.welcome_discount }}"></div>
+      <div class="field"><label for="milestone_every">Premio cada N referidos</label><input id="milestone_every" name="milestone_every" type="number" min="0" max="100" value="{{ settings.milestone_every }}"></div>
+      <div class="field"><label for="milestone_discount">% del premio</label><input id="milestone_discount" name="milestone_discount" type="number" min="0" max="100" value="{{ settings.milestone_discount }}"></div>
+    </div>
+    <p class="muted" style="font-size:.85rem;margin:0">Pon 0 para desactivar cualquier recompensa. Los cambios aplican a los registros nuevos.</p>
+  </section>
+
+  <section class="card">
+    <h2>Seguridad</h2>
+    <div class="field"><label for="new_password">Nueva contraseña <span class="muted">(déjala vacía para no cambiarla)</span></label><input id="new_password" name="new_password" type="password" autocomplete="new-password"></div>
+  </section>
+
+  <button class="btn block mt" type="submit">Guardar ajustes</button>
+</form>
+{% endblock %}

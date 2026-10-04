@@ -1,0 +1,35 @@
+{% extends "admin/_layout.html" %}
+{% block section %}clientes{% endblock %}
+{% block title %}Clientes · {{ settings.store_name }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Clientes</h1>
+  <a class="btn small" href="{{ url_for('admin_customer_new') }}"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Nuevo</a>
+</div>
+
+<form class="search" method="get">
+  <input type="search" name="q" value="{{ q }}" placeholder="Nombre, teléfono o código" aria-label="Buscar">
+  <button class="btn small" type="submit" aria-label="Buscar"><svg class="icon"><use href="#i-search"/></svg></button>
+</form>
+
+<div class="card">
+  {% if customers %}
+  <ul class="list">
+    {% for c in customers %}
+    <li>
+      <a class="rowlink main" href="{{ url_for('admin_customer_detail', customer_id=c.id) }}">
+        <strong>{{ c.name }}</strong>
+        <small>{{ c.code }} · {{ c.phone }}{% if c.referrer_name %} · vía {{ c.referrer_name }}{% endif %}</small>
+      </a>
+      <span style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+        {% if c.referrals %}<span class="badge">{{ c.referrals }} ref.</span>{% endif %}
+        {% if c.pending %}<span class="badge faience">{{ c.pending }} desc.</span>{% endif %}
+      </span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+    <p class="muted center" style="margin:0">{% if q %}Sin resultados para “{{ q }}”.{% else %}Aún no hay clientes registrados.{% endif %}</p>
+  {% endif %}
+</div>
+{% endblock %}

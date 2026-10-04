@@ -1,0 +1,2 @@
+<a href="{{ url_for('my_code') }}"><svg class="icon" aria-hidden="true"><use href="#i-ankh"/></svg>Mi código</a>
+{% if is_admin %}<a href="{{ url_for('admin_dashboard') }}"><svg class="icon" aria-hidden="true"><use href="#i-gear"/></svg>Panel</a>{% endif %}
