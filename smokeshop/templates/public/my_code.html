@@ -2,9 +2,9 @@
 {% block title %}Mi código · {{ settings.store_name }}{% endblock %}
 {% block top_links %}<a href="{{ url_for('menu') }}"><svg class="icon" aria-hidden="true"><use href="#i-scroll"/></svg>Menú</a>{% endblock %}
 {% block content %}
-<section class="hero">
-  <svg class="anubis" aria-hidden="true"><use href="#i-ankh"/></svg>
-  <h1>Tu código sagrado</h1>
+<section class="hero compact">
+  <svg class="small-mark" aria-hidden="true"><use href="#i-leaf"/></svg>
+  <h1 class="gradient-text">Tu código sagrado</h1>
   <p>Escribe el código que te dimos en tienda para ver tus referidos y tus descuentos.</p>
 </section>
 
@@ -16,7 +16,7 @@
       <input class="code-input" id="code" name="code" type="text" value="{{ code }}"
              placeholder="{{ settings.code_prefix }}-XXXXX" autocomplete="off" autocapitalize="characters" required>
     </div>
-    <button class="btn block" type="submit">Consultar</button>
+    <button class="btn leaf block" type="submit">Consultar</button>
   </form>
 
   {% if customer %}

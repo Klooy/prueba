@@ -29,7 +29,7 @@ CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # sin 0/O ni 1/I
 
 DEFAULT_SETTINGS = {
     "store_name": "Templo de Anubis",
-    "tagline": "Smoke shop · Menú del día",
+    "tagline": "Humo sagrado · Novedades frescas cada día",
     "code_prefix": "ANK",
     "referrer_discount": "10",   # % para quien refiere, por cada referido
     "welcome_discount": "5",     # % para el cliente nuevo que llega referido
@@ -168,11 +168,12 @@ def init_db():
 
 
 DEMO_PRODUCTS = [
-    ("Pipa Lapislázuli", "Vidrio soplado azul profundo con filo dorado.", "$450", "Pipas", 1),
-    ("Papel Oro 24k", "Edición limitada, combustión lenta.", "$80", "Papeles", 0),
-    ("Grinder Escarabajo", "Aluminio negro mate, 4 piezas.", "$320", "Accesorios", 0),
-    ("Bong Obelisco", "Vidrio borosilicato de 30 cm con percolador.", "$1,200", "Bongs", 1),
-    ("Encendedor Ankh", "Recargable, grabado egipcio.", "$150", "Accesorios", 0),
+    ("Pipa Lapislázuli", "Vidrio soplado azul profundo con filo dorado.", "85000", "Pipas", 1),
+    ("Bong Obelisco", "Vidrio borosilicato de 30 cm con percolador.", "240000", "Bongs", 1),
+    ("Papel Oro 24k", "Edición limitada, combustión lenta.", "12000", "Papeles", 0),
+    ("Grinder Escarabajo", "Aluminio negro mate, 4 piezas.", "65000", "Accesorios", 0),
+    ("Encendedor Ankh", "Recargable, grabado egipcio.", "18000", "Accesorios", 0),
+    ("Blunt Wraps Faraón", "Sabor mango, paquete x2.", "9000", "Papeles", 0),
 ]
 
 
@@ -229,6 +230,21 @@ def normalize_phone(raw):
 
 def normalize_code(raw):
     return (raw or "").strip().upper().replace(" ", "")
+
+
+def normalize_price(raw):
+    """'45.000', '$ 45,000' o '45000 COP' se guardan como '45000'; cualquier otro texto se deja igual."""
+    raw = (raw or "").strip()
+    compact = raw.upper().replace("COP", "").replace("$", "").replace(".", "").replace(",", "").replace(" ", "")
+    return compact if compact.isdigit() else raw
+
+
+def format_cop(value):
+    """'45000' -> '$45.000' (formato colombiano). Devuelve None si no es un número."""
+    value = (value or "").strip()
+    if not value.isdigit():
+        return None
+    return "$" + f"{int(value):,}".replace(",", ".")
 
 
 def generate_code():
@@ -364,6 +380,8 @@ def register_hooks(app):
         meses = ["ene", "feb", "mar", "abr", "may", "jun",
                  "jul", "ago", "sep", "oct", "nov", "dic"]
         return f"{dt.day} {meses[dt.month - 1]} {dt.year}"
+
+    app.template_filter("cop")(format_cop)
 
     @app.template_filter("first_name")
     def first_name(value):
@@ -654,7 +672,7 @@ def register_admin_routes(app):
             data = {
                 "title": (request.form.get("title") or "").strip(),
                 "description": (request.form.get("description") or "").strip(),
-                "price": (request.form.get("price") or "").strip(),
+                "price": normalize_price(request.form.get("price")),
                 "category": (request.form.get("category") or "").strip(),
                 "featured": 1 if request.form.get("featured") else 0,
                 "active": 1 if request.form.get("active") else 0,

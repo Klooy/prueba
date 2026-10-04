@@ -1,0 +1,9 @@
+{% macro price(value) -%}
+  {%- set cop = value|cop -%}
+  {%- if cop %}<span class="price">{{ cop }}<small>COP</small></span>
+  {%- elif value %}<span class="price">{{ value }}</span>{% endif -%}
+{%- endmacro %}
+
+{% macro price_text(value) -%}
+  {{- (value|cop ~ ' COP') if value|cop else value -}}
+{%- endmacro %}
