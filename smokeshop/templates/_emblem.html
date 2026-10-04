@@ -13,9 +13,10 @@
     <linearGradient id="em-gold" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#ffe9a8"/><stop offset=".5" stop-color="#e8b84a"/><stop offset="1" stop-color="#8f6516"/>
     </linearGradient>
-    <filter id="em-shadow" x="-30%" y="-30%" width="160%" height="160%">
-      <feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#000" flood-opacity=".75"/>
-    </filter>
+    <radialGradient id="em-fade" cx=".5" cy=".5" r=".5">
+      <stop offset=".72" stop-color="#fff"/><stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </radialGradient>
+    <mask id="em-mask" maskContentUnits="userSpaceOnUse"><circle cx="150" cy="150" r="103" fill="url(#em-fade)"/></mask>
   </defs>
 
   <circle cx="150" cy="150" r="148" fill="url(#em-aura)"/>
@@ -33,6 +34,7 @@
   <circle cx="150" cy="150" r="98" fill="none" stroke="#e8b84a" stroke-width=".5" stroke-opacity=".25"/>
 
 
-  <!-- máscara de Anubis (símbolo #anubis de _icons.html) -->
-  <use href="#anubis" x="65.5" y="27" width="169" height="236" filter="url(#em-shadow)"/>
+  <!-- ilustración de Anubis, fundida con el disco solar -->
+  <image href="{{ url_for('static', filename='img/anubis.jpg') }}" x="44" y="40" width="212" height="212" mask="url(#em-mask)" preserveAspectRatio="xMidYMid slice"/>
+  <circle cx="150" cy="150" r="104" fill="none" stroke="url(#em-gold)" stroke-width="1.2" stroke-opacity=".7"/>
 </svg>

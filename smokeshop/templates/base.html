@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#050705">
   <title>{% block title %}{{ settings.store_name }}{% endblock %}</title>
-  <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}" type="image/svg+xml">
+  <link rel="icon" href="{{ url_for('static', filename='img/favicon-32.png') }}" type="image/png" sizes="32x32">
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='img/favicon-180.png') }}">
   <script>document.documentElement.classList.add("js")</script>
   <link rel="preload" href="{{ url_for('static', filename='fonts/cinzel-decorative-900.woff2') }}" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/fonts.css') }}">
@@ -17,7 +18,7 @@
   <header class="site-header">
     <div class="wrap">
       <a class="brand" href="{% block brand_href %}{{ url_for('menu') }}{% endblock %}">
-        <svg class="icon logo" viewBox="0 0 96 134" aria-hidden="true"><use href="#anubis" width="96" height="134"/></svg>
+        <img class="logo" src="{{ url_for('static', filename='img/anubis-logo.jpg') }}" width="42" height="42" alt="">
         <span>{{ settings.store_name }}</span>
       </a>
       <nav class="top-links">{% block top_links %}{% endblock %}</nav>

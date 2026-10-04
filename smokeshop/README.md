@@ -6,7 +6,7 @@ Sistema privado para una smoke shop:
 - **Descuentos**: lista de descuentos pendientes por cliente, botón **Canjear** (cada descuento se usa una sola vez), regalos manuales y una **caja rápida** para buscar al cliente por su código.
 - **Menú del día**: sube novedades (foto, precio, categoría, destacado) sin llevar inventario. Ocultar no borra; "Vaciar menú" deja todo listo para el día siguiente.
 - **Vista pública**: menú del día filtrable por categoría, consulta de "Mi código" y enlace de invitación para compartir por WhatsApp.
-- **Diseño**: mobile-first, estética de templo nocturno de lujo (oro, jade y humo violeta). El logo es una máscara frontal de Anubis en oro con ojos de jade; su geometría vive en `tools/anubis_logo.py` (`python tools/anubis_logo.py` regenera el logo y el favicon).
+- **Diseño**: mobile-first, estética de templo nocturno de lujo (oro, jade y humo violeta). El logo es una ilustración de Anubis con un amuleto de cannabis; `python tools/brand_assets.py imagen.jpg` genera a partir de ella la imagen de la portada, el logo del encabezado y los iconos.
 
 ## Ejecutar
 
