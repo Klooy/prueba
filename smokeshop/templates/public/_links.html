@@ -1,2 +1,2 @@
-<a href="{{ url_for('my_code') }}"><svg class="icon" aria-hidden="true"><use href="#i-ankh"/></svg>Mi código</a>
+<a class="icon-only-sm" href="{{ url_for('my_code') }}" aria-label="Mi código"><svg class="icon" aria-hidden="true"><use href="#i-ankh"/></svg><span class="lbl-opt">Mi código</span></a>
 <a class="staff icon-only-sm" href="{{ url_for('admin_dashboard') }}" aria-label="{{ 'Panel' if is_admin else 'Acceso administrador' }}"><svg class="icon" aria-hidden="true"><use href="#i-{{ 'gear' if is_admin else 'lock' }}"/></svg><span class="lbl-opt">{{ 'Panel' if is_admin else 'Admin' }}</span></a>

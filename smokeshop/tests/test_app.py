@@ -180,7 +180,7 @@ def test_demo_seed_and_admin_password_env(tmp_path, monkeypatch):
     client = app.test_client()
     html = client.get("/").get_data(as_text=True)
     from app import DEMO_PRODUCTS
-    assert html.count('class="card product') == len(DEMO_PRODUCTS)
+    assert html.count('<article class="product') == len(DEMO_PRODUCTS)
     assert post(client, "/admin/login", {"password": "desdeenv"}).status_code == 302
     assert "Ana Ramírez" in client.get("/admin").get_data(as_text=True)
 
