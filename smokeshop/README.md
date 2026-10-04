@@ -12,7 +12,7 @@ Sistema privado para una smoke shop:
 
 ```bash
 cd smokeshop
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 python app.py              # http://localhost:5000
 ```
 
@@ -25,6 +25,14 @@ SECRET_KEY="una-clave-larga" gunicorn -w 2 -b 0.0.0.0:8000 app:app
 ```
 
 Variables opcionales: `SECRET_KEY`, `DATABASE` (ruta del SQLite; por defecto `instance/smokeshop.db`), `UPLOAD_FOLDER`, `PORT`.
+
+## Vista previa en Vercel (solo para ver el diseño)
+
+1. En Vercel: **Add New → Project**, importa el repositorio y pon `smokeshop` como **Root Directory**.
+2. En **Environment Variables** agrega `ADMIN_PASSWORD` (la contraseña del panel) y `SECRET_KEY` (un texto largo y aleatorio).
+3. **Deploy**.
+
+En Vercel la app arranca con productos y clientes de ejemplo (`DEMO_DATA=1` por defecto; pon `0` para desactivarlo). Todo lo que cambies se guarda en `/tmp` y **se pierde** cuando Vercel recicla la función, y cada instancia tiene su propia copia. Para uso real hace falta Postgres + almacenamiento de archivos, o un hosting con disco persistente.
 
 ## Rutas
 

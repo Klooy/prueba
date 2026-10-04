@@ -5,6 +5,7 @@ registra clientes, controla quién refirió a quién, entrega y canjea
 descuentos, y publica las novedades del día. Los clientes solo ven el menú
 del día y pueden consultar su código de referido.
 """
+import hashlib
 import os
 import secrets
 import sqlite3
@@ -13,12 +14,16 @@ from datetime import datetime
 from functools import wraps
 
 from flask import (
-    Flask, abort, flash, g, redirect, render_template, request, session, url_for,
+    Flask, abort, flash, g, redirect, render_template, request, send_from_directory, session,
+    url_for,
 )
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# En Vercel el código es de solo lectura: lo único escribible es /tmp, que se
+# borra cuando la función se recicla. Sirve para ver el diseño, no para datos reales.
+ON_VERCEL = bool(os.environ.get("VERCEL"))
 ALLOWED_IMAGES = {"png", "jpg", "jpeg", "webp", "gif"}
 CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # sin 0/O ni 1/I
 
@@ -81,11 +86,17 @@ REWARD_LABELS = {
 
 
 def create_app(test_config=None):
-    app = Flask(__name__, instance_relative_config=True)
+    app = Flask(
+        __name__, instance_relative_config=True,
+        instance_path="/tmp/smokeshop" if ON_VERCEL else None,
+    )
+    default_uploads = (os.path.join(app.instance_path, "uploads") if ON_VERCEL
+                       else os.path.join(BASE_DIR, "static", "uploads"))
     app.config.update(
-        SECRET_KEY=os.environ.get("SECRET_KEY") or _persistent_secret(app),
+        SECRET_KEY=os.environ.get("SECRET_KEY") or _fallback_secret(app),
         DATABASE=os.environ.get("DATABASE") or os.path.join(app.instance_path, "smokeshop.db"),
-        UPLOAD_FOLDER=os.environ.get("UPLOAD_FOLDER") or os.path.join(BASE_DIR, "static", "uploads"),
+        UPLOAD_FOLDER=os.environ.get("UPLOAD_FOLDER") or default_uploads,
+        DEMO_DATA=os.environ.get("DEMO_DATA", "1" if ON_VERCEL else "0") == "1",
         MAX_CONTENT_LENGTH=6 * 1024 * 1024,
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
@@ -98,11 +109,21 @@ def create_app(test_config=None):
     app.teardown_appcontext(close_db)
     with app.app_context():
         init_db()
+        if app.config["DEMO_DATA"]:
+            seed_demo()
 
     register_hooks(app)
     register_public_routes(app)
     register_admin_routes(app)
     return app
+
+
+def _fallback_secret(app):
+    # En Vercel cada instancia tiene su propio /tmp; una clave aleatoria por
+    # instancia rompería las sesiones, así que se deriva de ADMIN_PASSWORD.
+    if ON_VERCEL and os.environ.get("ADMIN_PASSWORD"):
+        return hashlib.sha256(("anubis:" + os.environ["ADMIN_PASSWORD"]).encode()).hexdigest()
+    return _persistent_secret(app)
 
 
 def _persistent_secret(app):
@@ -138,7 +159,39 @@ def init_db():
     db.executescript(SCHEMA)
     for key, value in DEFAULT_SETTINGS.items():
         db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (key, value))
+    if os.environ.get("ADMIN_PASSWORD"):
+        db.execute(
+            "INSERT OR IGNORE INTO settings (key, value) VALUES ('admin_password', ?)",
+            (generate_password_hash(os.environ["ADMIN_PASSWORD"]),),
+        )
     db.commit()
+
+
+DEMO_PRODUCTS = [
+    ("Pipa Lapislázuli", "Vidrio soplado azul profundo con filo dorado.", "$450", "Pipas", 1),
+    ("Papel Oro 24k", "Edición limitada, combustión lenta.", "$80", "Papeles", 0),
+    ("Grinder Escarabajo", "Aluminio negro mate, 4 piezas.", "$320", "Accesorios", 0),
+    ("Bong Obelisco", "Vidrio borosilicato de 30 cm con percolador.", "$1,200", "Bongs", 1),
+    ("Encendedor Ankh", "Recargable, grabado egipcio.", "$150", "Accesorios", 0),
+]
+
+
+def seed_demo():
+    """Llena una base vacía con datos de ejemplo para enseñar el diseño."""
+    db = get_db()
+    if db.execute("SELECT 1 FROM products UNION ALL SELECT 1 FROM customers LIMIT 1").fetchone():
+        return
+    for title, desc, price, cat, featured in DEMO_PRODUCTS:
+        db.execute(
+            "INSERT INTO products (title, description, price, category, featured, active, created_at) "
+            "VALUES (?, ?, ?, ?, ?, 1, ?)",
+            (title, desc, price, cat, featured, now()),
+        )
+    db.commit()
+    ana = register_customer("Ana Ramírez", "5551112222")
+    referrer = db.execute("SELECT * FROM customers WHERE id = ?", (ana,)).fetchone()
+    for name, phone in (("Beto Cruz", "5553334444"), ("Caro Méndez", "5556667777")):
+        register_customer(name, phone, referrer)
 
 
 def get_settings():
@@ -338,6 +391,10 @@ def register_public_routes(app):
             "public/menu.html", products=products, categories=categories,
             today=datetime.now(),
         )
+
+    @app.route("/uploads/<path:name>")
+    def uploaded(name):
+        return send_from_directory(app.config["UPLOAD_FOLDER"], name, max_age=86400)
 
     @app.route("/mi-codigo", methods=["GET", "POST"])
     def my_code():

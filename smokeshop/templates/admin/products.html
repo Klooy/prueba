@@ -14,7 +14,7 @@
     {% for p in products %}
     <li class="{% if not p.active %}off{% endif %}">
       {% if p.image %}
-        <img class="thumb" src="{{ url_for('static', filename='uploads/' ~ p.image) }}" alt="">
+        <img class="thumb" src="{{ url_for('uploaded', name=p.image) }}" alt="">
       {% else %}
         <span class="thumb"><svg class="icon" aria-hidden="true"><use href="#i-scarab"/></svg></span>
       {% endif %}

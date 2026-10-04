@@ -168,3 +168,26 @@ def test_open_redirect_blocked(client):
     post(client, "/admin/logout")
     resp = post(client, "/admin/login?next=//evil.com", {"password": "secreto1"})
     assert resp.headers["Location"].endswith("/admin")
+
+
+def test_demo_seed_and_admin_password_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("ADMIN_PASSWORD", "desdeenv")
+    app = create_app({"DATABASE": str(tmp_path / "d.db"), "UPLOAD_FOLDER": str(tmp_path / "u"),
+                      "SECRET_KEY": "t", "DEMO_DATA": True})
+    from app import seed_demo
+    with app.app_context():
+        seed_demo()  # una segunda vez no duplica
+    client = app.test_client()
+    html = client.get("/").get_data(as_text=True)
+    assert html.count('class="card product') == 5
+    assert post(client, "/admin/login", {"password": "desdeenv"}).status_code == 302
+    assert "Ana Ramírez" in client.get("/admin").get_data(as_text=True)
+
+
+def test_uploaded_image_served(client):
+    login(client)
+    img = (io.BytesIO(b"\x89PNG\r\n\x1a\nfake"), "foto.png")
+    post(client, "/admin/menu/nuevo", {"title": "Con foto", "active": "1", "image": img},
+         content_type="multipart/form-data")
+    src = re.search(r'src="(/uploads/[^"]+)"', client.get("/").get_data(as_text=True)).group(1)
+    assert client.get(src).data.startswith(b"\x89PNG")

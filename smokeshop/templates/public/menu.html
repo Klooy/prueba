@@ -29,7 +29,7 @@
       {% if p.featured %}<span class="ribbon">Destacado</span>{% endif %}
       <div class="media">
         {% if p.image %}
-          <img src="{{ url_for('static', filename='uploads/' ~ p.image) }}" alt="{{ p.title }}" loading="lazy">
+          <img src="{{ url_for('uploaded', name=p.image) }}" alt="{{ p.title }}" loading="lazy">
         {% else %}
           <svg class="icon" aria-hidden="true"><use href="#i-scarab"/></svg>
         {% endif %}
