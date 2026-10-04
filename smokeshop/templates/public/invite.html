@@ -2,9 +2,9 @@
 {% block title %}Invitación · {{ settings.store_name }}{% endblock %}
 {% block top_links %}{% include "public/_links.html" %}{% endblock %}
 {% block content %}
-<section class="hero">
+<section class="hero compact">
   <div class="embers" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
-  {% include "_emblem.html" %}
+  {% include "_hero_emblem.html" %}
   <div class="eyebrow">Invitación al templo</div>
   <h1 class="gradient-text">{{ referrer.name|first_name }} te abre las puertas</h1>
   {% if settings.welcome_discount != '0' %}

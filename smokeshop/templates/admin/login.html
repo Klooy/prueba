@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 {% block title %}Acceso · {{ settings.store_name }}{% endblock %}
 {% block content %}
-<section class="hero">
-  {% include "_emblem.html" %}
+<section class="hero compact">
+  {% include "_hero_emblem.html" %}
   <div class="eyebrow">Área reservada</div>
   <h1 class="gradient-text">{% if first_run %}Consagra tu llave{% else %}Entrada al templo{% endif %}</h1>
   {% if first_run %}<p>Primera vez: crea la contraseña del panel de administración.</p>{% endif %}

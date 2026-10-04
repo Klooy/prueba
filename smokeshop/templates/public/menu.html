@@ -3,66 +3,100 @@
 {% block title %}Menú del día · {{ settings.store_name }}{% endblock %}
 {% block top_links %}{% include "public/_links.html" %}{% endblock %}
 {% block content %}
-{% set dias = ['lunes','martes','miércoles','jueves','viernes','sábado','domingo'] %}
+{% set dias = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'] %}
 {% set meses = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'] %}
+{% set romanos = ['I','II','III','IV','V','VI','VII','VIII','IX','X','XI','XII','XIII','XIV','XV','XVI','XVII','XVIII','XIX','XX','XXI','XXII','XXIII','XXIV','XXV','XXVI','XXVII','XXVIII','XXIX','XXX','XXXI'] %}
 <section class="hero">
+  <div class="fog" aria-hidden="true"><i></i><i></i><i></i></div>
   <div class="embers" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
-  {% include "_emblem.html" %}
-  <div class="eyebrow">{{ dias[today.weekday()] }} {{ today.day }} de {{ meses[today.month - 1] }}</div>
-  <h1 class="gradient-text">Menú del día</h1>
-  <p>{{ settings.tagline }}</p>
+  {% include "_hero_emblem.html" %}
+  <p class="kicker">{{ dias[today.weekday()] }} {{ today.day }} · {{ meses[today.month - 1] }}</p>
+  <h1 class="display"><span class="foil">Menú</span><em>del día</em></h1>
+  <p class="lede">{{ settings.tagline }}</p>
+  <div class="hero-actions">
+    {% if products %}<a class="btn" href="#novedades"><svg class="icon" aria-hidden="true"><use href="#i-leaf"/></svg>Ver novedades</a>{% endif %}
+    <a class="btn ghost" href="{{ url_for('my_code') }}"><svg class="icon" aria-hidden="true"><use href="#i-ankh"/></svg>Mi código</a>
+  </div>
 </section>
 
-<div class="divider" aria-hidden="true"><svg class="icon"><use href="#i-leaf"/></svg></div>
-
-{% if products %}
-  {% if categories|length > 1 %}
-  <div class="chips" role="toolbar" aria-label="Filtrar por categoría">
-    <button class="chip" type="button" data-filter="" aria-pressed="true">Todo</button>
-    {% for c in categories %}
-      <button class="chip" type="button" data-filter="{{ c }}" aria-pressed="false">{{ c }}</button>
+<div class="marquee" aria-hidden="true">
+  <div class="track">
+    {% for _ in range(2) %}
+      <span>Novedades del día <svg class="icon"><use href="#i-leaf"/></svg></span>
+      {% for c in categories or ['Humo sagrado'] %}<span>{{ c }} <svg class="icon"><use href="#i-ankh"/></svg></span>{% endfor %}
+      <span>Referidos con descuento <svg class="icon"><use href="#i-eye"/></svg></span>
+      <span>{{ settings.store_name }} <svg class="icon"><use href="#i-leaf"/></svg></span>
     {% endfor %}
   </div>
-  {% endif %}
+</div>
 
-  <div class="products">
-    {% for p in products %}
-    <article class="card product{% if p.featured %} gilded{% endif %}" data-category="{{ p.category }}">
-      <div class="media">
-        {% if p.featured %}<span class="ribbon"><svg class="icon" aria-hidden="true"><use href="#i-star"/></svg>Destacado</span>{% endif %}
-        {% if p.image %}
-          <img src="{{ url_for('uploaded', name=p.image) }}" alt="{{ p.title }}" loading="lazy">
-        {% else %}
-          <svg class="icon" aria-hidden="true"><use href="#i-leaf"/></svg>
-        {% endif %}
-      </div>
-      <div class="body">
-        {% if p.category %}<span class="tag">{{ p.category }}</span>{% endif %}
-        <h3>{{ p.title }}</h3>
-        {% if p.description %}<p>{{ p.description }}</p>{% endif %}
-        {% if p.price %}<div class="foot">{{ price(p.price) }}</div>{% endif %}
-      </div>
-    </article>
-    {% endfor %}
-  </div>
-{% else %}
-  <div class="card empty">
-    <svg class="icon" aria-hidden="true"><use href="#i-leaf"/></svg>
-    <p>Hoy los dioses aún están cosechando.<br>Vuelve pronto.</p>
-  </div>
-{% endif %}
+<section class="section" id="novedades">
+  <header class="section-head reveal">
+    <div class="num">{{ romanos[today.day - 1] }}</div>
+    <h2>Lo nuevo <em>en el altar</em></h2>
+    <p>{% if products %}{{ products|length }} {{ 'pieza seleccionada' if products|length == 1 else 'piezas seleccionadas' }} para hoy{% else %}Aún sin novedades hoy{% endif %}</p>
+  </header>
 
-<section class="card gilded cta mt">
-  <div class="eyebrow" style="color:var(--leaf);letter-spacing:.28em;font-size:.72rem;text-transform:uppercase">Programa de referidos</div>
-  <h2 style="margin:.4em 0 0">Comparte el humo sagrado</h2>
-  <div class="big gradient-text">{{ settings.referrer_discount }}%<small> OFF</small></div>
-  <p class="muted">por cada amigo que llegue con tu código{% if settings.welcome_discount != '0' %},
-    y tu invitado se lleva {{ settings.welcome_discount }}&nbsp;% en su primera compra{% endif %}.</p>
-  <div class="btn-row" style="justify-content:center">
-    <a class="btn leaf" href="{{ url_for('my_code') }}"><svg class="icon" aria-hidden="true"><use href="#i-ankh"/></svg>Consultar mi código</a>
-    {% if settings.whatsapp %}
-    <a class="btn ghost" href="https://wa.me/{{ settings.whatsapp }}" target="_blank" rel="noopener">Escríbenos</a>
+  {% if products %}
+    {% if categories|length > 1 %}
+    <div class="chips" role="toolbar" aria-label="Filtrar por categoría">
+      <button class="chip" type="button" data-filter="" aria-pressed="true">Todo</button>
+      {% for c in categories %}
+        <button class="chip" type="button" data-filter="{{ c }}" aria-pressed="false">{{ c }}</button>
+      {% endfor %}
+    </div>
     {% endif %}
+
+    <div class="products">
+      {% for p in products %}
+      <article class="product reveal tone-{{ loop.index0 % 3 }}{% if p.featured %} gilded{% endif %}" data-category="{{ p.category }}" style="--d: {{ loop.index0 % 3 }}">
+        <div class="arch">
+          {% if p.image %}
+            <img src="{{ url_for('uploaded', name=p.image) }}" alt="{{ p.title }}" loading="lazy">
+          {% else %}
+            <div class="altar" aria-hidden="true"><span class="stem-glow"></span><svg class="icon"><use href="#i-leaf"/></svg></div>
+          {% endif %}
+          {% if p.featured %}<span class="ribbon"><svg class="icon" aria-hidden="true"><use href="#i-star"/></svg>Destacado</span>{% endif %}
+          <span class="idx" aria-hidden="true">{{ '%02d' % loop.index }}</span>
+        </div>
+        <div class="body">
+          {% if p.category %}<span class="tag">{{ p.category }}</span>{% endif %}
+          <h3>{{ p.title }}</h3>
+          {% if p.description %}<p>{{ p.description }}</p>{% endif %}
+          {% if p.price %}
+          <div class="leader"><span class="lbl">Precio</span><span class="dots"></span>{{ price(p.price) }}</div>
+          {% endif %}
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="card empty">
+      <svg class="icon" aria-hidden="true"><use href="#i-leaf"/></svg>
+      <p>Hoy los dioses aún están cosechando.<br>Vuelve pronto.</p>
+    </div>
+  {% endif %}
+</section>
+
+<section class="ticket reveal" aria-labelledby="ref-title">
+  <div class="stub">
+    <div class="pct foil">{{ settings.referrer_discount }}%</div>
+    <div class="off">De descuento</div>
+  </div>
+  <div class="info">
+    <p class="kicker" style="margin-bottom:10px">Programa de referidos</p>
+    <h2 id="ref-title">Comparte el <em>humo sagrado</em></h2>
+    <ol class="steps">
+      <li><b>1</b>Pide tu código en tienda</li>
+      <li><b>2</b>Compártelo con tus amigos</li>
+      <li><b>3</b>Gana {{ settings.referrer_discount }}&nbsp;% por cada uno que llegue{% if settings.welcome_discount != '0' %}, y ellos {{ settings.welcome_discount }}&nbsp;%{% endif %}</li>
+    </ol>
+    <div class="hero-actions">
+      <a class="btn leaf" href="{{ url_for('my_code') }}"><svg class="icon" aria-hidden="true"><use href="#i-ankh"/></svg>Consultar mi código</a>
+      {% if settings.whatsapp %}
+      <a class="btn ghost" href="https://wa.me/{{ settings.whatsapp }}" target="_blank" rel="noopener">Escríbenos</a>
+      {% endif %}
+    </div>
   </div>
 </section>
 {% endblock %}
@@ -74,6 +108,7 @@
       document.querySelectorAll('.chip').forEach(function (c) { c.setAttribute('aria-pressed', c === chip); });
       document.querySelectorAll('.product').forEach(function (p) {
         p.hidden = !!f && p.dataset.category !== f;
+        if (!p.hidden) p.classList.add('in');
       });
     });
   });
