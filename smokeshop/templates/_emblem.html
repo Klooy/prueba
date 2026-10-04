@@ -1,56 +1,38 @@
 <svg class="emblem" viewBox="0 0 300 300" aria-hidden="true">
   <defs>
-    <linearGradient id="g-gold" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#fff1b8"/>
-      <stop offset=".45" stop-color="#e9bc4a"/>
-      <stop offset="1" stop-color="#8a6414"/>
-    </linearGradient>
-    <linearGradient id="g-leaf" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#9dffb4"/>
-      <stop offset=".5" stop-color="#3ddc6a"/>
-      <stop offset="1" stop-color="#156b33"/>
-    </linearGradient>
-    <radialGradient id="g-aura" cx=".5" cy=".5" r=".5">
-      <stop offset="0" stop-color="#3ddc6a" stop-opacity=".45"/>
-      <stop offset=".6" stop-color="#3ddc6a" stop-opacity=".08"/>
-      <stop offset="1" stop-color="#3ddc6a" stop-opacity="0"/>
+    <radialGradient id="em-aura" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="#34d27a" stop-opacity=".22"/>
+      <stop offset=".55" stop-color="#34d27a" stop-opacity=".06"/>
+      <stop offset="1" stop-color="#34d27a" stop-opacity="0"/>
     </radialGradient>
-    <filter id="f-glow" x="-50%" y="-50%" width="200%" height="200%">
-      <feGaussianBlur stdDeviation="6" result="b"/>
-      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
-    </filter>
-    <filter id="f-smoke" x="-50%" y="-50%" width="200%" height="200%">
-      <feGaussianBlur stdDeviation="3.5"/>
+    <radialGradient id="em-disk" cx=".5" cy=".42" r=".6">
+      <stop offset="0" stop-color="#173022"/>
+      <stop offset=".7" stop-color="#0a120c"/>
+      <stop offset="1" stop-color="#060906"/>
+    </radialGradient>
+    <linearGradient id="em-gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffe9a8"/><stop offset=".5" stop-color="#e8b84a"/><stop offset="1" stop-color="#8f6516"/>
+    </linearGradient>
+    <filter id="em-shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#000" flood-opacity=".75"/>
     </filter>
   </defs>
 
-  <circle cx="150" cy="150" r="148" fill="url(#g-aura)"/>
+  <circle cx="150" cy="150" r="148" fill="url(#em-aura)"/>
 
   <!-- disco solar -->
   <g class="spin">
-    <circle cx="150" cy="150" r="128" fill="none" stroke="url(#g-gold)" stroke-width="1.5" opacity=".8"/>
-    <circle cx="150" cy="150" r="118" fill="none" stroke="#3ddc6a" stroke-width="1" stroke-dasharray="2 9" opacity=".7"/>
-    <g fill="#e9bc4a" opacity=".85">
-      <circle cx="150" cy="22" r="3"/><circle cx="278" cy="150" r="3"/>
-      <circle cx="150" cy="278" r="3"/><circle cx="22" cy="150" r="3"/>
+    <circle cx="150" cy="150" r="128" fill="none" stroke="url(#em-gold)" stroke-width="1.2" opacity=".8"/>
+    <circle cx="150" cy="150" r="119" fill="none" stroke="#34d27a" stroke-width=".8" stroke-dasharray="1.5 7" opacity=".6"/>
+    <g fill="#e8b84a">
+      <circle cx="150" cy="22" r="2.6"/><circle cx="278" cy="150" r="2.6"/>
+      <circle cx="150" cy="278" r="2.6"/><circle cx="22" cy="150" r="2.6"/>
     </g>
   </g>
+  <circle cx="150" cy="150" r="104" fill="url(#em-disk)" stroke="url(#em-gold)" stroke-width="1" stroke-opacity=".55"/>
+  <circle cx="150" cy="150" r="98" fill="none" stroke="#e8b84a" stroke-width=".5" stroke-opacity=".25"/>
 
-  <!-- hoja sagrada -->
-  <g class="halo">
-    <use href="#leaf7" transform="translate(150 214) scale(2.15)" fill="url(#g-leaf)" filter="url(#f-glow)"/>
-  </g>
 
-  <!-- humo -->
-  <g class="smoke" fill="none" stroke="#d9ffe3" stroke-linecap="round" filter="url(#f-smoke)">
-    <path class="s1" d="M128 250 C110 220 146 200 126 170 C110 146 140 126 124 100" stroke-width="7"/>
-    <path class="s2" d="M176 252 C196 224 160 204 182 176 C198 152 170 134 186 106" stroke-width="6"/>
-    <path class="s3" d="M152 258 C140 236 166 222 150 196 C138 176 160 160 150 138" stroke-width="5"/>
-  </g>
-
-  <!-- Anubis -->
-  <g transform="translate(51 54) scale(1.6)">
-    <use href="#i-anubis" width="100" height="100" fill="url(#g-gold)" stroke="#2a1d05" stroke-width=".6"/>
-    <path class="eye" d="M54 44 Q60 39.5 66 45 Q60 47.5 54 44 Z" fill="#9dffb4" filter="url(#f-glow)"/>
-  </g>
+  <!-- máscara de Anubis (símbolo #anubis de _icons.html) -->
+  <use href="#anubis" x="65.5" y="27" width="169" height="236" filter="url(#em-shadow)"/>
 </svg>

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#050705">
   <title>{% block title %}{{ settings.store_name }}{% endblock %}</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-50 -70 100 90'%3E%3Cg fill='%233ddc6a'%3E%3Cpath id='l' d='M0 0 C9 -18 9 -40 0 -62 C-9 -40 -9 -18 0 0Z'/%3E%3Cuse href='%23l' transform='rotate(32) scale(.85)'/%3E%3Cuse href='%23l' transform='rotate(-32) scale(.85)'/%3E%3Cuse href='%23l' transform='rotate(64) scale(.65)'/%3E%3Cuse href='%23l' transform='rotate(-64) scale(.65)'/%3E%3Crect x='-2' y='0' width='4' height='16'/%3E%3C/g%3E%3C/svg%3E">
+  <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}" type="image/svg+xml">
   <script>document.documentElement.classList.add("js")</script>
   <link rel="preload" href="{{ url_for('static', filename='fonts/cinzel-decorative-900.woff2') }}" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/fonts.css') }}">
@@ -17,7 +17,7 @@
   <header class="site-header">
     <div class="wrap">
       <a class="brand" href="{% block brand_href %}{{ url_for('menu') }}{% endblock %}">
-        <svg class="icon" aria-hidden="true"><use href="#i-logo"/></svg>
+        <svg class="icon logo" viewBox="0 0 96 134" aria-hidden="true"><use href="#anubis" width="96" height="134"/></svg>
         <span>{{ settings.store_name }}</span>
       </a>
       <nav class="top-links">{% block top_links %}{% endblock %}</nav>
