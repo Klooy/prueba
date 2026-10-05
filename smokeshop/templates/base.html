@@ -9,8 +9,8 @@
   <link rel="apple-touch-icon" href="{{ url_for('static', filename='img/favicon-180.png') }}">
   <script>document.documentElement.classList.add("js")</script>
   <link rel="preload" href="{{ url_for('static', filename='fonts/cinzel-decorative-900.woff2') }}" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/fonts.css') }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/anubis.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/fonts.css', v=asset_v) }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/anubis.css', v=asset_v) }}">
 </head>
 <body class="{% block body_class %}{% endblock %}">
   {% include "_icons.html" %}
