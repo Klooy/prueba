@@ -43,7 +43,11 @@
 }
 
 *, *::before, *::after { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+/* Los adornos (rayos, niebla, franja inclinada) se salen del ancho a propósito:
+   se recortan en la raíz para que en celular la página no se arrastre de lado. */
+html, body { overflow-x: hidden; }
+@supports (overflow: clip) { html, body { overflow-x: clip; } }
+html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; overscroll-behavior-x: none; }
 
 body {
   margin: 0;
@@ -58,7 +62,6 @@ body {
   font-family: var(--f-body);
   font-size: 15.5px;
   line-height: 1.6;
-  overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
 }
 
