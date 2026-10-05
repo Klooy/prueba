@@ -19,7 +19,8 @@
   </div>
 </section>
 
-<div class="marquee" aria-hidden="true">
+<div class="marquee-band" aria-hidden="true">
+<div class="marquee">
   <div class="track">
     {% for _ in range(2) %}
       <span>Novedades del día <svg class="icon"><use href="#i-leaf"/></svg></span>
@@ -28,6 +29,7 @@
       <span>{{ settings.store_name }} <svg class="icon"><use href="#i-leaf"/></svg></span>
     {% endfor %}
   </div>
+</div>
 </div>
 
 <section class="section" id="novedades">

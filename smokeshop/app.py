@@ -335,6 +335,20 @@ def delete_image(name):
             os.remove(path)
 
 
+def asset_version():
+    """Huella corta de las hojas de estilo: cambia cuando cambian, para invalidar la caché."""
+    if "asset_v" not in ASSET_CACHE:
+        digest = hashlib.md5()
+        for name in ("anubis.css", "fonts.css"):
+            with open(os.path.join(BASE_DIR, "static", "css", name), "rb") as fh:
+                digest.update(fh.read())
+        ASSET_CACHE["asset_v"] = digest.hexdigest()[:10]
+    return ASSET_CACHE["asset_v"]
+
+
+ASSET_CACHE = {}
+
+
 def is_admin():
     return session.get("admin") is True
 
@@ -363,6 +377,7 @@ def register_hooks(app):
     @app.context_processor
     def inject_globals():
         return {
+            "asset_v": asset_version(),
             "settings": get_settings(),
             "csrf_token": session.get("csrf", ""),
             "is_admin": is_admin(),
