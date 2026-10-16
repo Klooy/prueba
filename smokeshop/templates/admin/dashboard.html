@@ -1,4 +1,5 @@
 {% extends "admin/_layout.html" %}
+{% from "_macros.html" import money_stat %}
 {% block section %}inicio{% endblock %}
 {% block title %}Panel · {{ settings.store_name }}{% endblock %}
 {% block content %}
@@ -13,13 +14,14 @@
 <div class="stats">
   <div class="stat"><div class="num">{{ stats.customers }}</div><div class="lbl">Clientes</div></div>
   <div class="stat"><div class="num">{{ stats.month }}</div><div class="lbl">Referidos este mes</div></div>
-  <div class="stat"><div class="num">{{ stats.pending }}</div><div class="lbl">Descuentos sin usar</div></div>
+  <div class="stat">{{ money_stat(stats.pending_total) }}<div class="lbl">Por canjear · {{ stats.pending }} desc.</div></div>
   <div class="stat"><div class="num">{{ stats.products }}</div><div class="lbl">En el menú hoy</div></div>
 </div>
 
 <div class="btn-row mt">
   <a class="btn" href="{{ url_for('admin_customer_new') }}"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Nuevo cliente</a>
-  <a class="btn lapis" href="{{ url_for('admin_product_form') }}"><svg class="icon" aria-hidden="true"><use href="#i-scroll"/></svg>Subir novedad</a>
+  <a class="btn leaf" href="{{ url_for('admin_quick_redeem') }}"><svg class="icon" aria-hidden="true"><use href="#i-ticket"/></svg>Asignar descuento</a>
+  <a class="btn ghost" href="{{ url_for('admin_product_form') }}"><svg class="icon" aria-hidden="true"><use href="#i-scroll"/></svg>Subir novedad</a>
 </div>
 
 <div class="grid grid-2 mt">

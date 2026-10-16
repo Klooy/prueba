@@ -4,6 +4,12 @@
   {%- elif value %}<span class="price">{{ value }}</span>{% endif -%}
 {%- endmacro %}
 
+{# Monto en pesos dentro de una tarjeta de estadística; los millones usan letra más pequeña. #}
+{% macro money_stat(value) -%}
+  {%- set text = value|cop or "$0" -%}
+  <div class="num money{{ ' long' if text|length > 8 }}">{{ text }}</div>
+{%- endmacro %}
+
 {% macro price_text(value) -%}
   {{- (value|cop ~ ' COP') if value|cop else value -}}
 {%- endmacro %}

@@ -1,18 +1,40 @@
 {% extends "admin/_layout.html" %}
 {% block section %}canjear{% endblock %}
-{% block title %}Canjear · {{ settings.store_name }}{% endblock %}
+{% block title %}Descuentos · {{ settings.store_name }}{% endblock %}
 {% block content %}
 <section class="hero compact">
-  <svg class="small-mark" aria-hidden="true"><use href="#i-eye"/></svg>
-  <h1 class="gradient-text">Caja rápida</h1>
-  <p>Escribe el código que te muestra el cliente para ver y canjear sus descuentos.</p>
+  <svg class="small-mark" aria-hidden="true"><use href="#i-ticket"/></svg>
+  <h1 class="gradient-text">Descuentos</h1>
+  <p>Con el código del cliente le asignas un descuento en pesos, o buscas los que tiene para canjearlos.</p>
 </section>
-<form method="post" class="card gilded narrow">
-  <input type="hidden" name="csrf" value="{{ csrf_token }}">
-  <div class="field">
-    <label for="code">Código del cliente</label>
-    <input class="code-input" id="code" name="code" type="text" value="{{ code }}" placeholder="{{ settings.code_prefix }}-XXXXX" autocomplete="off" autocapitalize="characters" required autofocus>
-  </div>
-  <button class="btn block" type="submit">Buscar</button>
-</form>
+
+<div class="narrow">
+  <form method="post" action="{{ url_for('admin_give_by_code') }}" class="card gilded">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    <h2><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg> Asignar descuento</h2>
+    <div class="field">
+      <label for="give-code">Código del cliente</label>
+      <input class="code-input" id="give-code" name="code" type="text" value="{{ give.code }}" placeholder="{{ settings.code_prefix }}-XXXXX" autocomplete="off" autocapitalize="characters" required {% if not code %}autofocus{% endif %}>
+    </div>
+    <div class="field">
+      <label for="give-amount">Valor del descuento (COP)</label>
+      <div class="input-prefix"><span>$</span><input id="give-amount" name="amount" type="text" inputmode="numeric" value="{{ give.amount }}" placeholder="10000" autocomplete="off" required></div>
+    </div>
+    <div class="field">
+      <label for="give-note">Motivo <span class="muted">(opcional)</span></label>
+      <input id="give-note" name="note" type="text" value="{{ give.note }}" placeholder="Por referir a Juan, cumpleaños…">
+    </div>
+    <button class="btn leaf block" type="submit">Asignar descuento</button>
+  </form>
+
+  <form method="post" class="card mt">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    <h2><svg class="icon" aria-hidden="true"><use href="#i-search"/></svg> Canjear en caja</h2>
+    <div class="field">
+      <label for="code">Código del cliente</label>
+      <input class="code-input" id="code" name="code" type="text" value="{{ code }}" placeholder="{{ settings.code_prefix }}-XXXXX" autocomplete="off" autocapitalize="characters" required>
+    </div>
+    <button class="btn block" type="submit">Ver sus descuentos</button>
+  </form>
+</div>
 {% endblock %}

@@ -31,10 +31,6 @@ DEFAULT_SETTINGS = {
     "store_name": "Templo de Anubis",
     "tagline": "Humo sagrado · Novedades frescas cada día",
     "code_prefix": "ANK",
-    "referrer_discount": "10",   # % para quien refiere, por cada referido
-    "welcome_discount": "5",     # % para el cliente nuevo que llega referido
-    "milestone_every": "5",      # cada N referidos hay un premio extra (0 = desactivado)
-    "milestone_discount": "25",  # % del premio extra
     "whatsapp": "",              # número de la tienda, solo dígitos con código de país
 }
 
@@ -55,8 +51,9 @@ CREATE TABLE IF NOT EXISTS customers (
 CREATE TABLE IF NOT EXISTS rewards (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
-    kind        TEXT NOT NULL,          -- referral | welcome | milestone | manual
-    percent     INTEGER NOT NULL,
+    kind        TEXT NOT NULL,          -- referral | welcome | manual (milestone: histórico)
+    amount      INTEGER NOT NULL DEFAULT 0,  -- valor del descuento en pesos colombianos
+    percent     INTEGER NOT NULL DEFAULT 0,  -- histórico: descuentos antiguos en porcentaje
     source_id   INTEGER REFERENCES customers(id) ON DELETE SET NULL,
     note        TEXT NOT NULL DEFAULT '',
     created_at  TEXT NOT NULL,
@@ -81,8 +78,10 @@ REWARD_LABELS = {
     "referral": "Por referido",
     "welcome": "Bienvenida",
     "milestone": "Premio de meta",
-    "manual": "Regalo",
+    "manual": "Descuento asignado",
 }
+
+MAX_DISCOUNT = 10_000_000  # tope de seguridad contra ceros de más al escribir el valor
 
 
 def create_app(test_config=None):
@@ -157,6 +156,10 @@ def close_db(_exc=None):
 def init_db():
     db = get_db()
     db.executescript(SCHEMA)
+    # Bases creadas cuando los descuentos eran en %: agregar la columna de pesos.
+    columns = {row["name"] for row in db.execute("PRAGMA table_info(rewards)")}
+    if "amount" not in columns:
+        db.execute("ALTER TABLE rewards ADD COLUMN amount INTEGER NOT NULL DEFAULT 0")
     for key, value in DEFAULT_SETTINGS.items():
         db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (key, value))
     if os.environ.get("ADMIN_PASSWORD"):
@@ -192,7 +195,7 @@ def seed_demo():
     ana = register_customer("Ana Ramírez", "5551112222")
     referrer = db.execute("SELECT * FROM customers WHERE id = ?", (ana,)).fetchone()
     for name, phone in (("Beto Cruz", "5553334444"), ("Caro Méndez", "5556667777")):
-        register_customer(name, phone, referrer)
+        register_customer(name, phone, referrer, referrer_amount=10000, welcome_amount=5000)
 
 
 def get_settings():
@@ -211,13 +214,6 @@ def set_setting(key, value):
     g.pop("settings", None)
 
 
-def setting_int(key):
-    try:
-        return max(0, int(get_settings().get(key, "0")))
-    except ValueError:
-        return 0
-
-
 def now():
     return datetime.now().isoformat(timespec="seconds")
 
@@ -232,19 +228,51 @@ def normalize_code(raw):
     return (raw or "").strip().upper().replace(" ", "")
 
 
+def _money_digits(raw):
+    """Quita '$', 'COP', espacios y separadores de miles: '$ 45.000 COP' -> '45000'."""
+    return (raw or "").upper().replace("COP", "").replace("$", "").replace(".", "").replace(",", "").replace(" ", "")
+
+
 def normalize_price(raw):
     """'45.000', '$ 45,000' o '45000 COP' se guardan como '45000'; cualquier otro texto se deja igual."""
     raw = (raw or "").strip()
-    compact = raw.upper().replace("COP", "").replace("$", "").replace(".", "").replace(",", "").replace(" ", "")
-    return compact if compact.isdigit() else raw
+    compact = _money_digits(raw)
+    return compact if compact.isdecimal() else raw
+
+
+def parse_cop(raw):
+    """Valor en pesos escrito por el administrador: '10.000', '$10,000' o '10000 COP' -> 10000.
+
+    Vacío -> 0. Devuelve None si no es un valor válido.
+    """
+    compact = _money_digits(raw)
+    if not compact:
+        return 0
+    return int(compact) if compact.isdecimal() else None
 
 
 def format_cop(value):
-    """'45000' -> '$45.000' (formato colombiano). Devuelve None si no es un número."""
-    value = (value or "").strip()
-    if not value.isdigit():
+    """45000 o '45000' -> '$45.000' (formato colombiano). Devuelve None si no es un número."""
+    value = str(value if value is not None else "").strip()
+    if not value.isdecimal():
         return None
     return "$" + f"{int(value):,}".replace(",", ".")
+
+
+def reward_value(reward):
+    """Texto del valor de un descuento: pesos, o porcentaje en los descuentos antiguos."""
+    if reward["amount"]:
+        return format_cop(reward["amount"])
+    return f"{reward['percent']} %"
+
+
+def check_discount(amount):
+    """Mensaje de error para un valor de descuento, o None si es válido."""
+    if amount is None:
+        return "Escribe el descuento como un valor en pesos, por ejemplo 10000."
+    if amount > MAX_DISCOUNT:
+        return f"El descuento máximo es {format_cop(MAX_DISCOUNT)}."
+    return None
 
 
 def generate_code():
@@ -263,18 +291,23 @@ def find_customer_by_code(code):
     return get_db().execute("SELECT * FROM customers WHERE code = ?", (code,)).fetchone()
 
 
-def add_reward(customer_id, kind, percent, source_id=None, note=""):
-    if percent <= 0:
+def add_reward(customer_id, kind, amount, source_id=None, note=""):
+    """Asigna un descuento de `amount` pesos. Un valor de 0 no crea nada."""
+    if not amount or amount <= 0:
         return
     get_db().execute(
-        "INSERT INTO rewards (customer_id, kind, percent, source_id, note, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        (customer_id, kind, percent, source_id, note, now()),
+        "INSERT INTO rewards (customer_id, kind, amount, percent, source_id, note, created_at) "
+        "VALUES (?, ?, ?, 0, ?, ?, ?)",
+        (customer_id, kind, amount, source_id, note, now()),
     )
 
 
-def register_customer(name, phone, referrer=None, notes=""):
-    """Crea el cliente y reparte las recompensas del referido. Devuelve el id nuevo."""
+def register_customer(name, phone, referrer=None, notes="", referrer_amount=0, welcome_amount=0):
+    """Crea el cliente y, si el administrador los indicó, los descuentos del referido.
+
+    `referrer_amount` es para quien lo refirió y `welcome_amount` para el cliente nuevo,
+    ambos en pesos. Devuelve el id nuevo.
+    """
     db = get_db()
     cur = db.execute(
         "INSERT INTO customers (name, phone, code, referred_by, notes, created_at) "
@@ -283,18 +316,8 @@ def register_customer(name, phone, referrer=None, notes=""):
     )
     new_id = cur.lastrowid
     if referrer:
-        add_reward(new_id, "welcome", setting_int("welcome_discount"), referrer["id"])
-        add_reward(referrer["id"], "referral", setting_int("referrer_discount"), new_id)
-        every = setting_int("milestone_every")
-        if every:
-            total = db.execute(
-                "SELECT COUNT(*) FROM customers WHERE referred_by = ?", (referrer["id"],)
-            ).fetchone()[0]
-            if total % every == 0:
-                add_reward(
-                    referrer["id"], "milestone", setting_int("milestone_discount"), new_id,
-                    f"¡Meta de {total} referidos!",
-                )
+        add_reward(referrer["id"], "referral", referrer_amount, new_id)
+    add_reward(new_id, "welcome", welcome_amount, referrer["id"] if referrer else None)
     db.commit()
     return new_id
 
@@ -308,7 +331,7 @@ def customer_stats(customer_id):
         "SELECT * FROM rewards WHERE customer_id = ? AND redeemed_at IS NULL ORDER BY created_at",
         (customer_id,),
     ).fetchall()
-    return {"referrals": referrals, "pending": pending}
+    return {"referrals": referrals, "pending": pending, "total": sum(r["amount"] for r in pending)}
 
 
 def allowed_image(filename):
@@ -397,6 +420,7 @@ def register_hooks(app):
         return f"{dt.day} {meses[dt.month - 1]} {dt.year}"
 
     app.template_filter("cop")(format_cop)
+    app.template_filter("reward_value")(reward_value)
 
     @app.template_filter("first_name")
     def first_name(value):
@@ -500,6 +524,8 @@ def register_admin_routes(app):
                 (month + "%",)).fetchone()[0],
             "pending": db.execute(
                 "SELECT COUNT(*) FROM rewards WHERE redeemed_at IS NULL").fetchone()[0],
+            "pending_total": db.execute(
+                "SELECT COALESCE(SUM(amount), 0) FROM rewards WHERE redeemed_at IS NULL").fetchone()[0],
             "products": db.execute(
                 "SELECT COUNT(*) FROM products WHERE active = 1").fetchone()[0],
         }
@@ -524,7 +550,9 @@ def register_admin_routes(app):
         sql = (
             "SELECT c.*, p.name AS referrer_name, "
             "(SELECT COUNT(*) FROM customers x WHERE x.referred_by = c.id) AS referrals, "
-            "(SELECT COUNT(*) FROM rewards w WHERE w.customer_id = c.id AND w.redeemed_at IS NULL) AS pending "
+            "(SELECT COUNT(*) FROM rewards w WHERE w.customer_id = c.id AND w.redeemed_at IS NULL) AS pending, "
+            "(SELECT COALESCE(SUM(w.amount), 0) FROM rewards w "
+            " WHERE w.customer_id = c.id AND w.redeemed_at IS NULL) AS pending_total "
             "FROM customers c LEFT JOIN customers p ON p.id = c.referred_by"
         )
         params = ()
@@ -540,11 +568,15 @@ def register_admin_routes(app):
     @app.route("/admin/clientes/nuevo", methods=["GET", "POST"])
     @admin_required
     def admin_customer_new():
-        form = {"name": "", "phone": "", "ref": request.args.get("ref", ""), "notes": ""}
+        form = {"name": "", "phone": "", "ref": request.args.get("ref", ""), "notes": "",
+                "ref_amount": "", "welcome_amount": ""}
         if request.method == "POST":
             form = {k: (request.form.get(k) or "").strip() for k in form}
             phone = normalize_phone(form["phone"])
             referrer = find_customer_by_code(form["ref"]) if form["ref"] else None
+            ref_amount = parse_cop(form["ref_amount"])
+            welcome_amount = parse_cop(form["welcome_amount"])
+            amount_error = check_discount(ref_amount) or check_discount(welcome_amount)
             db = get_db()
             if not form["name"]:
                 flash("El nombre es obligatorio.", "error")
@@ -554,12 +586,21 @@ def register_admin_routes(app):
                 flash("Ya existe un cliente con ese teléfono.", "error")
             elif form["ref"] and not referrer:
                 flash("El código de referido no existe.", "error")
+            elif amount_error:
+                flash(amount_error, "error")
+            elif ref_amount and not referrer:
+                flash("Para darle un descuento a quien lo refirió, escribe su código.", "error")
             else:
-                new_id = register_customer(form["name"], phone, referrer, form["notes"])
-                if referrer:
-                    flash(f"Cliente registrado. {referrer['name']} ganó su descuento por referir.", "ok")
-                else:
-                    flash("Cliente registrado.", "ok")
+                new_id = register_customer(form["name"], phone, referrer, form["notes"],
+                                           referrer_amount=ref_amount, welcome_amount=welcome_amount)
+                msg = "Cliente registrado."
+                if referrer and ref_amount:
+                    msg += f" {referrer['name']} recibió {format_cop(ref_amount)} por referirlo."
+                elif referrer:
+                    msg += f" Quedó como referido de {referrer['name']}."
+                if welcome_amount:
+                    msg += f" Descuento de bienvenida: {format_cop(welcome_amount)}."
+                flash(msg, "ok")
                 return redirect(url_for("admin_customer_detail", customer_id=new_id))
         return render_template("admin/customer_form.html", form=form)
 
@@ -621,19 +662,25 @@ def register_admin_routes(app):
         flash("Cliente eliminado.", "ok")
         return redirect(url_for("admin_customers"))
 
-    @app.route("/admin/clientes/<int:customer_id>/regalo", methods=["POST"])
+    def give_discount(customer):
+        """Asigna el descuento en pesos del formulario. Devuelve True si se guardó."""
+        amount = parse_cop(request.form.get("amount"))
+        error = check_discount(amount) or (None if amount else "Escribe el valor del descuento en pesos.")
+        if error:
+            flash(error, "error")
+            return False
+        add_reward(customer["id"], "manual", amount, note=(request.form.get("note") or "").strip())
+        get_db().commit()
+        flash(f"Le asignaste {format_cop(amount)} de descuento a {customer['name']}.", "ok")
+        return True
+
+    @app.route("/admin/clientes/<int:customer_id>/descuento", methods=["POST"])
     @admin_required
-    def admin_reward_gift(customer_id):
-        try:
-            percent = int(request.form.get("percent", "0"))
-        except ValueError:
-            percent = 0
-        if not 1 <= percent <= 100:
-            flash("El descuento debe estar entre 1 y 100 %.", "error")
-        else:
-            add_reward(customer_id, "manual", percent, note=(request.form.get("note") or "").strip())
-            get_db().commit()
-            flash(f"Se regaló un {percent} % de descuento.", "ok")
+    def admin_reward_give(customer_id):
+        customer = get_db().execute("SELECT * FROM customers WHERE id = ?", (customer_id,)).fetchone()
+        if not customer:
+            abort(404)
+        give_discount(customer)
         return redirect(url_for("admin_customer_detail", customer_id=customer_id))
 
     @app.route("/admin/recompensas/<int:reward_id>/canjear", methods=["POST"])
@@ -648,20 +695,53 @@ def register_admin_routes(app):
         else:
             db.execute("UPDATE rewards SET redeemed_at = ? WHERE id = ?", (now(), reward_id))
             db.commit()
-            flash(f"Descuento de {reward['percent']} % canjeado.", "ok")
+            flash(f"Descuento de {reward_value(reward)} canjeado.", "ok")
         return redirect(url_for("admin_customer_detail", customer_id=reward["customer_id"]))
+
+    @app.route("/admin/clientes/<int:customer_id>/canjear-todo", methods=["POST"])
+    @admin_required
+    def admin_reward_redeem_all(customer_id):
+        db = get_db()
+        if not db.execute("SELECT 1 FROM customers WHERE id = ?", (customer_id,)).fetchone():
+            abort(404)
+        total, count = db.execute(
+            "SELECT COALESCE(SUM(amount), 0), COUNT(*) FROM rewards "
+            "WHERE customer_id = ? AND redeemed_at IS NULL", (customer_id,)
+        ).fetchone()
+        if count:
+            db.execute(
+                "UPDATE rewards SET redeemed_at = ? WHERE customer_id = ? AND redeemed_at IS NULL",
+                (now(), customer_id),
+            )
+            db.commit()
+            what = "1 descuento" if count == 1 else f"{count} descuentos"
+            flash(f"Canjeaste {what}" + (f" por {format_cop(total)}." if total else "."), "ok")
+        else:
+            flash("Ese cliente no tiene descuentos por canjear.", "error")
+        return redirect(url_for("admin_customer_detail", customer_id=customer_id))
 
     @app.route("/admin/canjear", methods=["GET", "POST"])
     @admin_required
     def admin_quick_redeem():
-        """Caja rápida: escribe el código del cliente y ve sus descuentos al instante."""
+        """Descuentos por código: buscar al cliente para canjear, o asignarle un descuento."""
         code = normalize_code(request.values.get("code"))
         if code:
             customer = find_customer_by_code(code)
             if customer:
                 return redirect(url_for("admin_customer_detail", customer_id=customer["id"]))
             flash("Código no encontrado.", "error")
-        return render_template("admin/quick_redeem.html", code=code)
+        return render_template("admin/quick_redeem.html", code=code, give={})
+
+    @app.route("/admin/canjear/asignar", methods=["POST"])
+    @admin_required
+    def admin_give_by_code():
+        give = {k: (request.form.get(k) or "").strip() for k in ("code", "amount", "note")}
+        customer = find_customer_by_code(give["code"])
+        if not customer:
+            flash("No hay ningún cliente con ese código.", "error")
+        elif give_discount(customer):
+            return redirect(url_for("admin_customer_detail", customer_id=customer["id"]))
+        return render_template("admin/quick_redeem.html", code="", give=give)
 
     # ---- menú del día
 
@@ -769,12 +849,6 @@ def register_admin_routes(app):
             set_setting("code_prefix",
                         normalize_code(request.form.get("code_prefix"))[:6] or DEFAULT_SETTINGS["code_prefix"])
             set_setting("whatsapp", normalize_phone(request.form.get("whatsapp")))
-            for key in ("referrer_discount", "welcome_discount", "milestone_every", "milestone_discount"):
-                try:
-                    value = min(100, max(0, int(request.form.get(key, "0"))))
-                except ValueError:
-                    value = int(DEFAULT_SETTINGS[key])
-                set_setting(key, str(value))
             new_pw = request.form.get("new_password", "")
             if new_pw:
                 if len(new_pw) < 6:

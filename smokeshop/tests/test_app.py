@@ -47,8 +47,9 @@ def login(client):
     return post(client, "/admin/login", {"password": "secreto1", "confirm": "secreto1"})
 
 
-def new_customer(client, name, phone, ref=""):
-    resp = post(client, "/admin/clientes/nuevo", {"name": name, "phone": phone, "ref": ref})
+def new_customer(client, name, phone, ref="", **amounts):
+    data = {"name": name, "phone": phone, "ref": ref, **amounts}
+    resp = post(client, "/admin/clientes/nuevo", data)
     assert resp.status_code == 302, resp.get_data(as_text=True)
     return int(resp.headers["Location"].rstrip("/").split("/")[-1])
 
@@ -63,7 +64,7 @@ def rewards_of(app, cid):
     from app import get_db
     with app.app_context():
         return get_db().execute(
-            "SELECT kind, percent, redeemed_at FROM rewards WHERE customer_id = ? ORDER BY id", (cid,)
+            "SELECT kind, amount, note, redeemed_at FROM rewards WHERE customer_id = ? ORDER BY id", (cid,)
         ).fetchall()
 
 
@@ -92,24 +93,73 @@ def test_first_run_then_login(client):
     assert post(client, "/admin/login", {"password": "secreto1"}).status_code == 302
 
 
-def test_referral_rewards_and_milestone(app, client):
+def test_referral_discounts_in_pesos_set_by_admin(app, client):
     login(client)
-    post(client, "/admin/ajustes", {
-        "store_name": "X", "tagline": "Y", "code_prefix": "ank", "whatsapp": "",
-        "referrer_discount": "10", "welcome_discount": "5",
-        "milestone_every": "2", "milestone_discount": "25",
-    })
+    post(client, "/admin/ajustes", {"store_name": "X", "tagline": "Y", "code_prefix": "ank", "whatsapp": ""})
     ana = new_customer(client, "Ana", "555 111 2222")
     code = code_of(app, ana)
     assert code.startswith("ANK-")
+    assert rewards_of(app, ana) == []  # nadie recibe nada automáticamente
 
-    b = new_customer(client, "Beto", "5553334444", ref=code.lower())
-    assert [tuple(r)[:2] for r in rewards_of(app, b)] == [("welcome", 5)]
-    assert [tuple(r)[:2] for r in rewards_of(app, ana)] == [("referral", 10)]
+    b = new_customer(client, "Beto", "5553334444", ref=code.lower(),
+                     ref_amount="10.000", welcome_amount="$5,000")
+    assert [tuple(r)[:2] for r in rewards_of(app, ana)] == [("referral", 10000)]
+    assert [tuple(r)[:2] for r in rewards_of(app, b)] == [("welcome", 5000)]
+    html = client.get(f"/admin/clientes/{ana}").get_data(as_text=True)
+    assert "$10.000" in html and "%" not in html.split("Descuentos", 1)[1].split("Sus referidos")[0]
 
-    new_customer(client, "Caro", "5556667777", ref=code)
-    kinds = [r["kind"] for r in rewards_of(app, ana)]
-    assert kinds == ["referral", "referral", "milestone"]
+    # referido sin valores: queda registrado, pero sin descuentos; no hay premios automáticos
+    caro = new_customer(client, "Caro", "5556667777", ref=code)
+    assert len(rewards_of(app, ana)) == 1 and rewards_of(app, caro) == []
+    from app import get_db
+    with app.app_context():
+        assert get_db().execute("SELECT referred_by FROM customers WHERE id = ?", (caro,)).fetchone()[0] == ana
+
+
+def test_new_customer_discount_validation(app, client):
+    login(client)
+    ana = new_customer(client, "Ana", "5551112222")
+    base = {"name": "Z", "phone": "5559990000"}
+    html = post(client, "/admin/clientes/nuevo", {**base, "ref_amount": "10000"}).get_data(as_text=True)
+    assert "escribe su código" in html
+    html = post(client, "/admin/clientes/nuevo",
+                {**base, "ref": code_of(app, ana), "ref_amount": "diez mil"}).get_data(as_text=True)
+    assert "valor en pesos" in html and 'value="diez mil"' in html
+    html = post(client, "/admin/clientes/nuevo", {**base, "welcome_amount": "99000000"}).get_data(as_text=True)
+    assert "máximo" in html
+    # bienvenida sin referido sí se permite
+    z = new_customer(client, "Z", "5559990000", welcome_amount="3000")
+    assert [tuple(r)[:2] for r in rewards_of(app, z)] == [("welcome", 3000)]
+
+
+def test_assign_discount_by_code(app, client):
+    login(client)
+    ana = new_customer(client, "Ana", "5551112222")
+    code = code_of(app, ana)
+    resp = post(client, "/admin/canjear/asignar", {"code": code.lower(), "amount": "15.000", "note": "Por referir a Juan"})
+    assert resp.status_code == 302 and resp.headers["Location"].endswith(f"/admin/clientes/{ana}")
+    assert [tuple(r)[:3] for r in rewards_of(app, ana)] == [("manual", 15000, "Por referir a Juan")]
+    assert "$15.000" in client.get(resp.headers["Location"]).get_data(as_text=True)
+
+    html = post(client, "/admin/canjear/asignar", {"code": "ANK-ZZZZZ", "amount": "1000"}).get_data(as_text=True)
+    assert "Ningún cliente".lower() in html.lower()
+    html = post(client, "/admin/canjear/asignar", {"code": code, "amount": "abc"}).get_data(as_text=True)
+    assert "valor en pesos" in html
+    html = post(client, "/admin/canjear/asignar", {"code": code, "amount": ""}).get_data(as_text=True)
+    assert "Escribe el valor" in html
+    assert len(rewards_of(app, ana)) == 1
+
+    # el cliente ve su saldo en pesos
+    html = post(client, "/mi-codigo", {"code": code}).get_data(as_text=True)
+    assert "$15.000" in html
+
+
+def test_assign_discount_from_customer_page(app, client):
+    login(client)
+    ana = new_customer(client, "Ana", "5551112222")
+    post(client, f"/admin/clientes/{ana}/descuento", {"amount": "8000", "note": "Cumpleaños"})
+    assert [tuple(r)[:3] for r in rewards_of(app, ana)] == [("manual", 8000, "Cumpleaños")]
+    assert post(client, "/admin/clientes/999/descuento", {"amount": "8000"}).status_code == 404
 
 
 def test_duplicate_phone_and_bad_ref(client):
@@ -124,7 +174,7 @@ def test_duplicate_phone_and_bad_ref(client):
 def test_redeem_once(app, client):
     login(client)
     ana = new_customer(client, "Ana", "5551112222")
-    new_customer(client, "Beto", "5553334444", ref=code_of(app, ana))
+    new_customer(client, "Beto", "5553334444", ref=code_of(app, ana), ref_amount="10000")
     from app import get_db
     with app.app_context():
         rid = get_db().execute("SELECT id FROM rewards WHERE customer_id = ?", (ana,)).fetchone()[0]
@@ -210,3 +260,61 @@ def test_prices_in_cop(client):
 def test_admin_entry_visible_on_public_pages(client):
     html = client.get("/").get_data(as_text=True)
     assert html.count('href="/admin"') >= 2
+
+
+def test_redeem_all(app, client):
+    login(client)
+    ana = new_customer(client, "Ana", "5551112222")
+    for amount in ("10000", "5000"):
+        post(client, f"/admin/clientes/{ana}/descuento", {"amount": amount})
+    html = client.get(f"/admin/clientes/{ana}").get_data(as_text=True)
+    assert "Canjear todo" in html and "$15.000" in html
+    resp = post(client, f"/admin/clientes/{ana}/canjear-todo", follow_redirects=True)
+    assert "Canjeaste 2 descuentos por $15.000" in resp.get_data(as_text=True)
+    assert all(r["redeemed_at"] for r in rewards_of(app, ana))
+    resp = post(client, f"/admin/clientes/{ana}/canjear-todo", follow_redirects=True)
+    assert "no tiene descuentos" in resp.get_data(as_text=True)
+
+
+def test_money_helpers():
+    from app import format_cop, parse_cop
+    assert parse_cop("10.000") == 10000
+    assert parse_cop("$ 25,000 COP") == 25000
+    assert parse_cop("") == 0
+    assert parse_cop("diez") is None
+    assert format_cop(15000) == "$15.000"
+    assert format_cop(None) is None
+
+
+def test_legacy_percent_rewards_are_migrated(tmp_path):
+    import sqlite3
+    db_path = tmp_path / "old.db"
+    con = sqlite3.connect(db_path)
+    con.executescript("""
+        CREATE TABLE customers (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,
+            phone TEXT NOT NULL UNIQUE, code TEXT NOT NULL UNIQUE, referred_by INTEGER,
+            notes TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL);
+        CREATE TABLE rewards (id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER NOT NULL,
+            kind TEXT NOT NULL, percent INTEGER NOT NULL, source_id INTEGER,
+            note TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, redeemed_at TEXT);
+        INSERT INTO customers VALUES (1, 'Ana', '5551112222', 'ANK-AAAAA', NULL, '', '2026-10-01T10:00:00');
+        INSERT INTO rewards (customer_id, kind, percent, created_at) VALUES (1, 'referral', 10, '2026-10-01T10:00:00');
+    """)
+    con.commit()
+    con.close()
+    app = create_app({"DATABASE": str(db_path), "UPLOAD_FOLDER": str(tmp_path / "u"), "SECRET_KEY": "t"})
+    client = app.test_client()
+    login(client)
+    post(client, "/admin/clientes/1/descuento", {"amount": "7000"})  # inserta con la columna nueva
+    html = client.get("/admin/clientes/1").get_data(as_text=True)
+    assert "10 %" in html and "$7.000" in html
+
+
+def test_settings_without_percentages(client):
+    login(client)
+    html = client.get("/admin/ajustes").get_data(as_text=True)
+    form = html.split('<form method="post" class="narrow">', 1)[1].split("</form>", 1)[0]
+    assert "referrer_discount" not in form and "%" not in form
+    resp = post(client, "/admin/ajustes", {"store_name": "Templo", "tagline": "T", "code_prefix": "ank", "whatsapp": ""},
+                follow_redirects=True)
+    assert "Ajustes guardados" in resp.get_data(as_text=True)

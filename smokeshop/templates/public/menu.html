@@ -82,8 +82,8 @@
 
 <section class="ticket reveal" aria-labelledby="ref-title">
   <div class="stub">
-    <div class="pct foil">{{ settings.referrer_discount }}%</div>
-    <div class="off">De descuento</div>
+    <div class="pct foil">$</div>
+    <div class="off">Descuentos en pesos</div>
   </div>
   <div class="info">
     <p class="kicker" style="margin-bottom:10px">Programa de referidos</p>
@@ -91,7 +91,7 @@
     <ol class="steps">
       <li><b>1</b>Pide tu código en tienda</li>
       <li><b>2</b>Compártelo con tus amigos</li>
-      <li><b>3</b>Gana {{ settings.referrer_discount }}&nbsp;% por cada uno que llegue{% if settings.welcome_discount != '0' %}, y ellos {{ settings.welcome_discount }}&nbsp;%{% endif %}</li>
+      <li><b>3</b>Gana descuentos en pesos por cada amigo que llegue con tu código</li>
     </ol>
     <div class="hero-actions">
       <a class="btn leaf" href="{{ url_for('my_code') }}"><svg class="icon" aria-hidden="true"><use href="#i-ankh"/></svg>Consultar mi código</a>

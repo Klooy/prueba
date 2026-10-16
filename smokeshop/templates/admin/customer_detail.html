@@ -1,7 +1,10 @@
 {% extends "admin/_layout.html" %}
+{% from "_macros.html" import money_stat %}
 {% block section %}clientes{% endblock %}
 {% block title %}{{ customer.name }} · {{ settings.store_name }}{% endblock %}
 {% block content %}
+{% set pending = rewards|selectattr('redeemed_at', 'none')|list %}
+{% set pending_total = pending|sum(attribute='amount') %}
 <div class="page-head">
   <h1>{{ customer.name }}</h1>
   <a class="btn small ghost" href="{{ url_for('admin_customer_new', ref=customer.code) }}"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Registrar referido</a>
@@ -10,9 +13,9 @@
 <div class="grid grid-2">
   <section class="card gilded">
     <div class="code-plate"><div class="code">{{ customer.code }}</div></div>
-    <div class="stats mt">
+    <div class="stats pair mt">
       <div class="stat"><div class="num">{{ referrals|length }}</div><div class="lbl">Referidos</div></div>
-      <div class="stat"><div class="num">{{ rewards|selectattr('redeemed_at', 'none')|list|length }}</div><div class="lbl">Descuentos</div></div>
+      <div class="stat">{{ money_stat(pending_total) }}<div class="lbl">Por canjear</div></div>
     </div>
     <p class="mt muted" style="font-size:.9rem;margin-bottom:8px">
       Tel. {{ customer.phone }} · Desde {{ customer.created_at|fecha }}<br>
@@ -33,7 +36,7 @@
     <h2><svg class="icon" aria-hidden="true"><use href="#i-ticket"/></svg> Descuentos</h2>
     {% for r in rewards %}
       <div class="reward{% if r.redeemed_at %} used{% endif %}">
-        <div class="pct">{{ r.percent }}%</div>
+        <div class="pct">{{ r|reward_value }}</div>
         <div class="info">
           <strong>{{ reward_labels[r.kind] }}</strong>
           <small class="muted" style="display:block">
@@ -44,7 +47,7 @@
         </div>
         {% if not r.redeemed_at %}
         <form method="post" action="{{ url_for('admin_reward_redeem', reward_id=r.id) }}" class="inline"
-              onsubmit="return confirm('¿Canjear {{ r.percent }} % ahora?')">
+              onsubmit='return confirm({{ ("¿Canjear el descuento de " ~ (r|reward_value) ~ " ahora?")|tojson }})'>
           <input type="hidden" name="csrf" value="{{ csrf_token }}">
           <button class="btn small" type="submit">Canjear</button>
         </form>
@@ -54,17 +57,26 @@
       <p class="muted">Sin descuentos todavía.</p>
     {% endfor %}
 
-    <details class="mt">
-      <summary class="muted" style="cursor:pointer">Regalar un descuento</summary>
-      <form method="post" action="{{ url_for('admin_reward_gift', customer_id=customer.id) }}" class="mt">
-        <input type="hidden" name="csrf" value="{{ csrf_token }}">
-        <div class="grid" style="grid-template-columns:110px 1fr">
-          <div class="field"><label for="percent">%</label><input id="percent" name="percent" type="number" min="1" max="100" value="10" required></div>
-          <div class="field"><label for="note">Motivo</label><input id="note" name="note" type="text" placeholder="Cumpleaños, cliente fiel…"></div>
+    {% if pending|length > 1 %}
+    <form method="post" action="{{ url_for('admin_reward_redeem_all', customer_id=customer.id) }}" class="mt"
+          onsubmit='return confirm({{ ("¿Canjear los " ~ (pending|length) ~ " descuentos" ~ ((" por " ~ (pending_total|cop)) if pending_total else "") ~ " ahora?")|tojson }})'>
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <button class="btn block ghost" type="submit">Canjear todo{% if pending_total %} · {{ pending_total|cop }}{% endif %}</button>
+    </form>
+    {% endif %}
+
+    <form method="post" action="{{ url_for('admin_reward_give', customer_id=customer.id) }}" class="give mt">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <p class="form-group-title">Asignar descuento</p>
+      <div class="grid" style="grid-template-columns:minmax(0,1fr) minmax(0,1.3fr)">
+        <div class="field">
+          <label for="amount">Valor (COP)</label>
+          <div class="input-prefix"><span>$</span><input id="amount" name="amount" type="text" inputmode="numeric" placeholder="10000" autocomplete="off" required></div>
         </div>
-        <button class="btn small lapis" type="submit">Regalar</button>
-      </form>
-    </details>
+        <div class="field"><label for="note">Motivo</label><input id="note" name="note" type="text" placeholder="Por referir a Juan, cumpleaños…"></div>
+      </div>
+      <button class="btn small leaf" type="submit">Asignar descuento</button>
+    </form>
   </section>
 </div>
 

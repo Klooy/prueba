@@ -589,7 +589,7 @@ small, .muted { color: var(--dim); }
   font-family: var(--f-display); font-weight: 900;
   font-size: clamp(4.4rem, 24vw, 6.5rem); line-height: .9;
 }
-.ticket .off { font-family: var(--f-title); font-weight: 600; letter-spacing: .5em; font-size: .78rem; color: var(--jade); margin-top: 6px; }
+.ticket .off { font-family: var(--f-title); font-weight: 600; letter-spacing: .3em; font-size: .78rem; color: var(--jade); margin-top: 6px; }
 .ticket .info { padding: 26px 22px 28px; text-align: center; }
 .ticket .info h2 { color: var(--papyrus); margin-bottom: .35em; }
 .ticket .info p { color: var(--dim); margin-bottom: 18px; }
@@ -610,6 +610,19 @@ small, .muted { color: var(--dim); }
 /* --------------------------------------------------------------- formularios */
 label { display: block; font-size: .78rem; font-weight: 500; letter-spacing: .04em; color: var(--dim); margin-bottom: 7px; }
 .field { margin-bottom: 15px; }
+.form-group {
+  margin-bottom: 15px; padding: 14px 14px 12px;
+  border: 1px dashed var(--line-jade); border-radius: 16px;
+  background: rgba(52, 210, 122, .04);
+}
+.form-group .grid, form.give .grid { align-items: end; }
+.form-group-title {
+  margin: 0 0 12px;
+  font-family: var(--f-title); font-weight: 600; font-size: .72rem;
+  letter-spacing: .14em; text-transform: uppercase; color: var(--jade);
+}
+.form-group-title .muted { text-transform: none; letter-spacing: 0; font-family: var(--f-body); font-weight: 400; }
+form.give { padding-top: 18px; border-top: 1px solid var(--line); }
 input[type=text], input[type=tel], input[type=password], input[type=number], input[type=search], textarea, select {
   width: 100%;
   font: inherit; font-size: 16px;
@@ -737,6 +750,14 @@ input[type=file]::file-selector-button {
   background: var(--jade-foil); background-size: 200% 100%;
   -webkit-background-clip: text; background-clip: text; color: transparent;
 }
+/* Montos en pesos: la letra se ajusta al ancho de la tarjeta para que nunca se corten. */
+.stat { container-type: inline-size; }
+.stat .num.money { font-size: clamp(1.1rem, 5vw, 1.7rem); white-space: nowrap; padding: .35em 0 .2em; }
+.stat .num.money.long { font-size: clamp(1rem, 4vw, 1.35rem); }
+@supports (font-size: 1cqi) {
+  .stat .num.money { font-size: clamp(1rem, 17cqi, 2rem); }
+  .stat .num.money.long { font-size: clamp(.9rem, 12.5cqi, 1.6rem); }
+}
 .stat .lbl { font-size: .66rem; font-weight: 600; color: var(--dim); text-transform: uppercase; letter-spacing: .16em; margin-top: 8px; }
 
 /* --------------------------------------------------------------- listas */
@@ -762,7 +783,7 @@ input[type=file]::file-selector-button {
 .badge.dim { background: transparent; color: var(--dim); border-color: var(--line); }
 
 .reward {
-  display: flex; align-items: center; gap: 12px;
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 6px 12px;
   padding: 12px 12px 12px 6px;
   border-radius: 16px;
   border: 1px solid var(--line-jade);
@@ -770,12 +791,17 @@ input[type=file]::file-selector-button {
 }
 .reward + .reward { margin-top: 10px; }
 .reward .pct {
-  font-family: var(--f-display); font-weight: 900; font-size: 1.6rem;
-  min-width: 70px; text-align: center;
+  font-family: var(--f-display); font-weight: 900; font-size: 1.15rem;
+  min-width: 86px; padding: 4px 12px 4px 8px; text-align: center; white-space: nowrap;
   background: var(--jade-foil); -webkit-background-clip: text; background-clip: text; color: transparent;
   border-right: 1px dashed var(--line-jade);
 }
-.reward .info { flex: 1; min-width: 0; font-size: .88rem; }
+.reward .info { min-width: 0; font-size: .88rem; }
+@media (max-width: 459px) {
+  .reward { grid-template-columns: auto minmax(0, 1fr); }
+  .reward:has(form) .pct { grid-row: span 2; align-self: stretch; display: flex; align-items: center; }
+  .reward form { grid-column: 2; justify-self: start; }
+}
 .reward.used { opacity: .45; background: none; border-color: var(--line); }
 .reward.used .pct { background: none; color: var(--dim); -webkit-text-fill-color: var(--dim); text-decoration: line-through; }
 
@@ -886,6 +912,7 @@ details.danger-zone[open] summary { margin-bottom: 12px; }
   .grid-2 { grid-template-columns: repeat(2, 1fr); }
   .grid-3 { grid-template-columns: repeat(3, 1fr); }
   .stats { grid-template-columns: repeat(4, 1fr); }
+  .stats.pair { grid-template-columns: repeat(2, 1fr); }
   .card { padding: 24px; }
   .chips { justify-content: center; }
   .hero { padding-bottom: 46px; }

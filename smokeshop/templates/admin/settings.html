@@ -15,17 +15,6 @@
   </section>
 
   <section class="card">
-    <h2>Recompensas</h2>
-    <div class="grid" style="grid-template-columns:1fr 1fr">
-      <div class="field"><label for="referrer_discount">% para quien refiere</label><input id="referrer_discount" name="referrer_discount" type="number" min="0" max="100" value="{{ settings.referrer_discount }}"></div>
-      <div class="field"><label for="welcome_discount">% bienvenida al nuevo</label><input id="welcome_discount" name="welcome_discount" type="number" min="0" max="100" value="{{ settings.welcome_discount }}"></div>
-      <div class="field"><label for="milestone_every">Premio cada N referidos</label><input id="milestone_every" name="milestone_every" type="number" min="0" max="100" value="{{ settings.milestone_every }}"></div>
-      <div class="field"><label for="milestone_discount">% del premio</label><input id="milestone_discount" name="milestone_discount" type="number" min="0" max="100" value="{{ settings.milestone_discount }}"></div>
-    </div>
-    <p class="muted" style="font-size:.85rem;margin:0">Pon 0 para desactivar cualquier recompensa. Los cambios aplican a los registros nuevos.</p>
-  </section>
-
-  <section class="card">
     <h2>Seguridad</h2>
     <div class="field"><label for="new_password">Nueva contraseña <span class="muted">(déjala vacía para no cambiarla)</span></label><input id="new_password" name="new_password" type="password" autocomplete="new-password"></div>
   </section>
