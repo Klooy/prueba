@@ -17,15 +17,24 @@
     <label for="ref">Código de quien lo refirió <span class="muted">(opcional)</span></label>
     <input class="code-input" id="ref" name="ref" type="text" value="{{ form.ref }}" placeholder="{{ settings.code_prefix }}-XXXXX" autocomplete="off" autocapitalize="characters">
   </div>
+  <div class="form-group">
+    <p class="form-group-title">Descuentos en pesos <span class="muted">(opcional)</span></p>
+    <div class="grid" style="grid-template-columns:1fr 1fr">
+      <div class="field">
+        <label for="ref_amount">Para quien lo refirió</label>
+        <div class="input-prefix"><span>$</span><input id="ref_amount" name="ref_amount" type="text" inputmode="numeric" value="{{ form.ref_amount }}" placeholder="10000" autocomplete="off"></div>
+      </div>
+      <div class="field">
+        <label for="welcome_amount">Bienvenida al nuevo</label>
+        <div class="input-prefix"><span>$</span><input id="welcome_amount" name="welcome_amount" type="text" inputmode="numeric" value="{{ form.welcome_amount }}" placeholder="5000" autocomplete="off"></div>
+      </div>
+    </div>
+    <p class="muted" style="font-size:.82rem;margin:0">Tú decides el valor. Déjalo vacío si no quieres dar descuento; también puedes asignarlo después con el código del cliente.</p>
+  </div>
   <div class="field">
     <label for="notes">Notas <span class="muted">(opcional)</span></label>
     <textarea id="notes" name="notes" placeholder="Preferencias, productos favoritos…">{{ form.notes }}</textarea>
   </div>
-  <p class="muted" style="font-size:.88rem">
-    Si viene referido: quien lo refirió gana {{ settings.referrer_discount }}&nbsp;%
-    {%- if settings.welcome_discount != '0' %} y el nuevo cliente {{ settings.welcome_discount }}&nbsp;%{% endif %}.
-    {% if settings.milestone_every != '0' %}Cada {{ settings.milestone_every }} referidos hay premio extra de {{ settings.milestone_discount }}&nbsp;%.{% endif %}
-  </p>
   <button class="btn block" type="submit">Registrar y generar código</button>
 </form>
 {% endblock %}

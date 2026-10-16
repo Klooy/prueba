@@ -23,7 +23,8 @@
       </a>
       <span style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
         {% if c.referrals %}<span class="badge">{{ c.referrals }} ref.</span>{% endif %}
-        {% if c.pending %}<span class="badge faience">{{ c.pending }} desc.</span>{% endif %}
+        {% if c.pending_total %}<span class="badge faience">{{ c.pending_total|cop }}</span>
+        {% elif c.pending %}<span class="badge faience">{{ c.pending }} desc.</span>{% endif %}
       </span>
     </li>
     {% endfor %}

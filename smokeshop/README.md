@@ -2,8 +2,8 @@
 
 Sistema privado para una smoke shop:
 
-- **Referidos**: registra clientes y cada uno recibe un código (`ANK-XXXXX`). Si un cliente nuevo llega con el código de otro, quien lo refirió gana un descuento y el nuevo recibe uno de bienvenida. Cada *N* referidos hay un premio extra.
-- **Descuentos**: lista de descuentos pendientes por cliente, botón **Canjear** (cada descuento se usa una sola vez), regalos manuales y una **caja rápida** para buscar al cliente por su código.
+- **Referidos**: registra clientes y cada uno recibe un código (`ANK-XXXXX`). Al registrar a alguien con el código de quien lo refirió, queda guardado quién trajo a quién.
+- **Descuentos en pesos (COP)**: el administrador decide el valor de cada descuento. Lo asigna con el código del cliente en la página **Descuentos**, al registrar un referido (valor para quien refirió y bienvenida para el nuevo, ambos opcionales) o desde la ficha del cliente. Cada descuento se canjea una sola vez, uno por uno o con **Canjear todo**; el cliente ve su saldo en pesos en "Mi código".
 - **Menú del día**: sube novedades (foto, precio, categoría, destacado) sin llevar inventario. Ocultar no borra; "Vaciar menú" deja todo listo para el día siguiente.
 - **Vista pública**: menú del día filtrable por categoría, consulta de "Mi código" y enlace de invitación para compartir por WhatsApp.
 - **Diseño**: mobile-first, estética de templo nocturno de lujo (oro, jade y humo violeta). El logo es una ilustración de Anubis con un amuleto de cannabis; `python tools/brand_assets.py imagen.jpg` genera a partir de ella la imagen de la portada, el logo del encabezado y los iconos.
