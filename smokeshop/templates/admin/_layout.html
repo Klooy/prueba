@@ -2,8 +2,12 @@
 {% block body_class %}admin{% endblock %}
 {% block brand_href %}{{ url_for('admin_dashboard') }}{% endblock %}
 {% block top_links %}
-  <a href="{{ url_for('menu') }}" target="_blank" rel="noopener">
-    <svg class="icon" aria-hidden="true"><use href="#i-eye"/></svg>Ver menú
+  <a class="icon-only-sm" href="{{ url_for('menu') }}" target="_blank" rel="noopener" aria-label="Ver menú">
+    <svg class="icon" aria-hidden="true"><use href="#i-eye"/></svg><span class="lbl-opt">Ver menú</span>
+  </a>
+  {# Ajustes va arriba: se usa poco y así la barra de abajo cabe en celulares pequeños. #}
+  <a class="icon-only-sm" href="{{ url_for('admin_settings') }}" aria-label="Ajustes" {% if self.section()|trim == 'ajustes' %}aria-current="page"{% endif %}>
+    <svg class="icon" aria-hidden="true"><use href="#i-gear"/></svg><span class="lbl-opt">Ajustes</span>
   </a>
 {% endblock %}
 {% block footer %}
@@ -12,14 +16,14 @@
   <ul>
     <li><a href="{{ url_for('admin_dashboard') }}" {% if section == 'inicio' %}aria-current="page"{% endif %}>
       <svg class="icon" aria-hidden="true"><use href="#i-temple"/></svg>Inicio</a></li>
+    <li><a href="{{ url_for('admin_orders') }}" {% if section == 'pedidos' %}aria-current="page"{% endif %}>
+      <span class="nav-icon"><svg class="icon" aria-hidden="true"><use href="#i-bag"/></svg>{% if new_orders %}<span class="nav-badge" aria-hidden="true">{{ new_orders if new_orders < 100 else '99+' }}</span>{% endif %}</span>Pedidos{% if new_orders %}<span class="sr-only">: {{ new_orders }} {{ 'nuevo' if new_orders == 1 else 'nuevos' }}</span>{% endif %}</a></li>
     <li><a href="{{ url_for('admin_customers') }}" {% if section == 'clientes' %}aria-current="page"{% endif %}>
       <svg class="icon" aria-hidden="true"><use href="#i-users"/></svg>Clientes</a></li>
     <li><a href="{{ url_for('admin_quick_redeem') }}" {% if section == 'canjear' %}aria-current="page"{% endif %}>
       <svg class="icon" aria-hidden="true"><use href="#i-ticket"/></svg>Descuentos</a></li>
     <li><a href="{{ url_for('admin_products') }}" {% if section == 'menu' %}aria-current="page"{% endif %}>
       <svg class="icon" aria-hidden="true"><use href="#i-scroll"/></svg>Menú</a></li>
-    <li><a href="{{ url_for('admin_settings') }}" {% if section == 'ajustes' %}aria-current="page"{% endif %}>
-      <svg class="icon" aria-hidden="true"><use href="#i-gear"/></svg>Ajustes</a></li>
   </ul>
 </nav>
 {% endblock %}

@@ -27,7 +27,7 @@
       <button class="btn small ghost" type="button" data-copy="invite" aria-label="Copiar"><svg class="icon"><use href="#i-copy"/></svg></button>
     </div>
     <a class="btn block mt" target="_blank" rel="noopener"
-       href="https://wa.me/{{ customer.phone }}?text={{ ('Hola ' ~ (customer.name|first_name) ~ ', tu código de ' ~ settings.store_name ~ ' es ' ~ customer.code ~ '. Compártelo: ' ~ invite_url)|urlencode }}">
+       href="https://wa.me/{{ customer.phone|wa }}?text={{ ('Hola ' ~ (customer.name|first_name) ~ ', tu código de ' ~ settings.store_name ~ ' es ' ~ customer.code ~ '. Compártelo: ' ~ invite_url)|urlencode }}">
       <svg class="icon" aria-hidden="true"><use href="#i-share"/></svg>Enviar código por WhatsApp
     </a>
   </section>
@@ -96,6 +96,15 @@
     <p class="muted" style="margin:0">Aún no ha traído a nadie.</p>
   {% endif %}
 </section>
+
+{% if orders %}
+<section class="card mt">
+  <h2><svg class="icon" aria-hidden="true"><use href="#i-bag"/></svg> Sus pedidos</h2>
+  <ul class="list">
+    {% for o in orders %}{% include "admin/_order_row.html" %}{% endfor %}
+  </ul>
+</section>
+{% endif %}
 
 <section class="card mt">
   <details>

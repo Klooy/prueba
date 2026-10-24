@@ -31,6 +31,16 @@
   <a class="btn ghost" href="{{ url_for('admin_product_form') }}"><svg class="icon" aria-hidden="true"><use href="#i-scroll"/></svg>Subir novedad</a>
 </div>
 
+{% if orders %}
+<section class="card gilded mt">
+  <h2><svg class="icon" aria-hidden="true"><use href="#i-bag"/></svg> Pedidos nuevos</h2>
+  <ul class="list">
+    {% for o in orders %}{% include "admin/_order_row.html" %}{% endfor %}
+  </ul>
+  <a class="btn small ghost mt" href="{{ url_for('admin_orders') }}">Ver todos los pedidos</a>
+</section>
+{% endif %}
+
 <div class="grid grid-2 mt">
   <section class="card gilded">
     <h2><svg class="icon" aria-hidden="true"><use href="#i-star"/></svg> Top referidores</h2>

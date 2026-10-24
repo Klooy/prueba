@@ -1,8 +1,11 @@
 import io
+import json
 import os
 import re
 import sys
 import tempfile
+from datetime import datetime, timedelta, timezone
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
@@ -349,7 +352,7 @@ def test_whatsapp_helpers():
     assert phone_display("") == ""
 
 
-def test_cart_on_menu_sends_to_store_whatsapp(client):
+def test_cart_on_menu_posts_order_to_server(client):
     login(client)
     add_product(client, "Bong Osiris", "240.000")
     add_product(client, "Kit sorpresa", "Consultar")
@@ -362,8 +365,9 @@ def test_cart_on_menu_sends_to_store_whatsapp(client):
     assert items["Kit sorpresa"]["price"] is None and items["Kit sorpresa"]["label"] == "Consultar"
     assert items["Sin precio"]["price"] is None and items["Sin precio"]["label"] == ""
     assert html.count("data-add>") == 3
-    assert 'data-whatsapp="573001234567"' in html
-    assert 'href="https://wa.me/573001234567"' in html and "Pedir por WhatsApp" in html
+    assert 'action="/pedido"' in html and 'target="_blank"' in html and "Pedir por WhatsApp" in html
+    for field in ('name="name" form="cart-form"', 'name="code" form="cart-form"', 'name="note" form="cart-form"'):
+        assert field in html
     assert "js/cart.js" in html
 
 
@@ -437,3 +441,148 @@ def test_my_code_remembers_code_for_cart(app, client):
     code = code_of(app, cid)
     html = post(client, "/mi-codigo", {"code": code}).get_data(as_text=True)
     assert f'perfil.code = "{code}"' in html
+
+
+def place_order(client, items, **form):
+    return post(client, "/pedido", {"items": items, **form})
+
+
+def wa_text(resp):
+    """Mensaje que la redirección le pasa a WhatsApp."""
+    return parse_qs(urlsplit(resp.headers["Location"]).query)["text"][0]
+
+
+def orders_of(app):
+    from app import get_db
+    with app.app_context():
+        return get_db().execute("SELECT * FROM orders ORDER BY id").fetchall()
+
+
+def test_order_is_saved_and_opens_store_whatsapp(app, client):
+    login(client)
+    save_settings(client, "3001234567")
+    add_product(client, "Bong Osiris", "240.000")
+    add_product(client, "Kit sorpresa", "Consultar")
+    add_product(client, "Oculto", "5000", active="")        # no está en el menú de hoy
+    ana = new_customer(client, "Ana", "3005551111")
+    code = code_of(app, ana)
+
+    resp = place_order(client, "1:2,2:1,3:4,99:1,basura", token="t" * 32,
+                       name=" Juan ", code=code.lower(), note="A las 6")
+    assert resp.status_code == 303
+    assert resp.headers["Location"].startswith("https://wa.me/573001234567?text=")
+    text = wa_text(resp)
+    assert text.startswith("Hola, Templo. Quiero hacer el pedido #0001:")
+    assert "• 2 × Bong Osiris — $480.000" in text and "• 1 × Kit sorpresa — Consultar" in text
+    assert "Oculto" not in text
+    assert "Total: $480.000 COP + productos con precio a confirmar" in text
+    assert "Nombre: Juan" in text and f"Mi código de cliente: {code} (quiero" in text and "Nota: A las 6" in text
+
+    (order,) = orders_of(app)
+    assert order["status"] == "nuevo" and order["total"] == 480000 and order["pending"] == 1
+    assert order["customer_id"] == ana and order["code"] == code and order["name"] == "Juan"
+    lines = json.loads(order["items"])
+    assert [(line["title"], line["qty"], line["price"]) for line in lines] == [
+        ("Kit sorpresa", 1, None), ("Bong Osiris", 2, 240000)]       # mismo orden que el menú
+
+
+def test_resending_same_cart_updates_its_order(app, client):
+    login(client)
+    save_settings(client, "3001234567")
+    add_product(client, "Bong", "240000")
+    place_order(client, "1:1", token="a" * 32)
+    text = wa_text(place_order(client, "1:3", token="a" * 32))
+    assert "pedido #0001" in text and "3 × Bong" in text
+    rows = orders_of(app)
+    assert len(rows) == 1 and rows[0]["total"] == 720000
+
+    post(client, "/admin/pedidos/1/estado", {"status": "confirmado"})
+    assert "pedido #0002" in wa_text(place_order(client, "1:1", token="a" * 32))  # ya confirmado: uno nuevo
+    place_order(client, "1:1", token="corto")                                    # token inválido: uno nuevo
+    assert len(orders_of(app)) == 3
+
+
+def test_order_rejected_without_whatsapp_or_items(app, client):
+    login(client)
+    add_product(client, "Bong", "240000")
+    resp = post(client, "/pedido", {"items": "1:1"}, follow_redirects=True)
+    assert "todavía no recibe pedidos" in resp.get_data(as_text=True)
+    save_settings(client, "3001234567")
+    for items in ("", "99:1", "1:0", "x:y", "1:" + "9" * 5000):
+        resp = post(client, "/pedido", {"items": items}, follow_redirects=True)
+        assert "Tu pedido está vacío" in resp.get_data(as_text=True)
+    assert client.post("/pedido", data={"items": "1:1"}).status_code == 400   # sin token CSRF
+    assert orders_of(app) == []
+
+
+def test_order_flood_is_limited(app, client, monkeypatch):
+    import app as app_module
+    monkeypatch.setattr(app_module, "ORDER_LIMIT", (2, 600))
+    login(client)
+    save_settings(client, "3001234567")
+    add_product(client, "Bong", "240000")
+    assert place_order(client, "1:1", token="b" * 32).status_code == 303
+    assert place_order(client, "1:2").status_code == 303
+    blocked = post(client, "/pedido", {"items": "1:1"}, follow_redirects=True)
+    assert "muchos pedidos seguidos" in blocked.get_data(as_text=True)
+    assert place_order(client, "1:5", token="b" * 32).status_code == 303     # actualizar sí se puede
+    assert len(orders_of(app)) == 2
+
+
+def test_admin_order_history(app, client, monkeypatch):
+    assert client.get("/admin/pedidos").status_code == 302                   # solo con sesión
+    login(client)
+    save_settings(client, "3001234567")
+    add_product(client, "Bong Osiris", "240.000")
+    ana = new_customer(client, "Ana Ramírez", "3005551111")
+    post(client, f"/admin/clientes/{ana}/descuento", {"amount": "15000"})
+    place_order(client, "1:1", name="Juan", code=code_of(app, ana))
+    place_order(client, "1:2", name="Pedro")
+
+    html = client.get("/admin/pedidos").get_data(as_text=True)
+    assert "#0001 · Juan" in html and "#0002 · Pedro" in html and "$480.000" in html
+    assert 'class="nav-badge" aria-hidden="true">2<' in html
+    assert "#0002" in client.get("/admin/pedidos?q=%230002").get_data(as_text=True)
+    found = client.get("/admin/pedidos?q=juan").get_data(as_text=True)
+    assert "#0001" in found and "#0002" not in found
+
+    import app as app_module
+    monkeypatch.setattr(app_module, "ORDERS_PER_PAGE", 1)
+    first = client.get("/admin/pedidos").get_data(as_text=True)
+    assert "#0002" in first and "#0001 ·" not in first and "pagina=2" in first
+    assert "#0001 · Juan" in client.get("/admin/pedidos?pagina=2").get_data(as_text=True)
+    monkeypatch.undo()
+
+    detail = client.get("/admin/pedidos/1").get_data(as_text=True)
+    assert "1 × Bong Osiris" in detail and "Ana Ramírez" in detail
+    assert "$15.000" in detail and "Descuentos para usar" in detail
+    assert 'href="https://wa.me/573005551111"' in detail
+    assert client.get("/admin/pedidos/99").status_code == 404
+
+    resp = post(client, "/admin/pedidos/1/estado", {"status": "entregado"}, follow_redirects=True)
+    assert "Pedido #0001 marcado como entregado" in resp.get_data(as_text=True)
+    assert post(client, "/admin/pedidos/1/estado", {"status": "otro"}).status_code == 400
+    nuevos = client.get("/admin/pedidos?estado=nuevo").get_data(as_text=True)
+    assert "#0002" in nuevos and "#0001 ·" not in nuevos
+
+    dashboard = client.get("/admin").get_data(as_text=True)
+    assert "Pedidos nuevos" in dashboard and "#0002" in dashboard
+    ficha = client.get(f"/admin/clientes/{ana}").get_data(as_text=True)
+    assert "Sus pedidos" in ficha and "#0001" in ficha
+    assert 'href="https://wa.me/573005551111?text=' in ficha              # el código va al número con 57
+
+    resp = post(client, "/admin/pedidos/2/borrar", follow_redirects=True)
+    assert "Pedido #0002 eliminado" in resp.get_data(as_text=True)
+    assert client.get("/admin/pedidos/2").status_code == 404
+    assert "Pedidos nuevos" not in client.get("/admin").get_data(as_text=True)
+
+
+def test_order_date_filter(app):
+    from app import local_now
+    utc = datetime.now(timezone.utc).replace(tzinfo=None)
+    assert abs(local_now() - (utc - timedelta(hours=5))) < timedelta(seconds=5)   # hora de Colombia
+    fecha_hora = app.jinja_env.filters["fecha_hora"]
+    today = local_now().replace(hour=15, minute=42, second=0, microsecond=0)
+    assert fecha_hora(today.isoformat()) == "Hoy, 3:42 p. m."
+    assert fecha_hora((today - timedelta(days=1)).replace(hour=0, minute=5).isoformat()) == "Ayer, 12:05 a. m."
+    assert fecha_hora("2025-01-09T12:30:00") == "9 ene 2025, 12:30 p. m."

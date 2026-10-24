@@ -184,7 +184,7 @@ small, .muted { color: var(--dim); }
   border: 1px solid transparent;
   transition: background .2s, border-color .2s, color .2s;
 }
-.top-links a:hover { text-decoration: none; background: rgba(52, 210, 122, .08); border-color: var(--line-jade); color: var(--jade-hi); }
+.top-links a:hover, .top-links a[aria-current="page"] { text-decoration: none; background: rgba(52, 210, 122, .08); border-color: var(--line-jade); color: var(--jade-hi); }
 .top-links a.staff {
   color: var(--ink); font-weight: 700;
   background: var(--foil); background-size: 220% 100%;
@@ -420,8 +420,8 @@ small, .muted { color: var(--dim); }
   cursor: pointer;
   transition: all .2s;
 }
-.chip:hover { border-color: var(--jade); color: var(--jade-hi); }
-.chip[aria-pressed="true"] {
+.chip:hover { border-color: var(--jade); color: var(--jade-hi); text-decoration: none; }
+.chip[aria-pressed="true"], .chip[aria-current="true"] {
   background: var(--jade-foil); background-size: 200% 100%;
   color: #03160a; border-color: transparent;
   box-shadow: 0 0 24px rgba(52, 210, 122, .35);
@@ -826,19 +826,29 @@ input[type=file]::file-selector-button {
   box-shadow: 0 20px 40px -10px rgba(0, 0, 0, .9);
   z-index: 50;
 }
-.admin-nav ul { list-style: none; margin: 0; padding: 4px; display: grid; grid-template-columns: repeat(5, 1fr); }
+.admin-nav ul { list-style: none; margin: 0; padding: 4px; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
 .admin-nav a {
   display: flex; flex-direction: column; align-items: center; gap: 3px;
-  padding: 9px 2px 8px;
+  padding: 9px 0 8px;
   border-radius: 18px;
   color: var(--dim);
-  font-size: .62rem; font-weight: 600; letter-spacing: .06em;
+  font-size: clamp(.54rem, 2.6vw, .62rem); font-weight: 600; letter-spacing: 0;   /* "Descuentos" cabe hasta en 320 px */
+  white-space: nowrap;
   transition: color .2s, background .2s;
 }
 .admin-nav a .icon { width: 22px; height: 22px; }
 .admin-nav a:hover { text-decoration: none; color: var(--papyrus); }
 .admin-nav a[aria-current="page"] { color: var(--jade-hi); background: rgba(52, 210, 122, .1); }
 .admin-nav a[aria-current="page"] .icon { filter: drop-shadow(0 0 8px rgba(52, 210, 122, .7)); }
+.nav-icon { position: relative; display: inline-flex; }
+.nav-badge {                                          /* pedidos nuevos */
+  position: absolute; top: -6px; left: calc(100% - 9px);
+  min-width: 18px; height: 18px; padding: 0 5px;
+  border-radius: 999px;
+  background: var(--jade); color: #03160a;
+  font: 800 .62rem/18px var(--f-body); letter-spacing: 0; text-align: center;
+  box-shadow: 0 0 0 2px var(--ink), 0 0 10px rgba(52, 210, 122, .6);
+}
 body.admin main { padding-bottom: 120px; }
 
 .page-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 26px 0 16px; flex-wrap: wrap; }
@@ -868,6 +878,28 @@ body.admin main { padding-bottom: 120px; }
 details summary { cursor: pointer; }
 details.danger-zone summary { color: var(--carnelian); font-size: .88rem; }
 details.danger-zone[open] summary { margin-bottom: 12px; }
+
+/* --------------------------------------------------------------- pedidos (panel) */
+.list .main small.clip { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--papyrus); }
+.order-side { display: flex; flex-direction: column; align-items: flex-end; gap: 7px; flex: none; }
+.order-total {
+  font-family: var(--f-display); font-weight: 900; font-size: 1rem; white-space: nowrap;
+  background: var(--foil); background-size: 220% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.order-total.pending { font: 600 .66rem var(--f-body); letter-spacing: .14em; text-transform: uppercase; background: none; color: var(--dim); }
+.order-lines .main strong { white-space: normal; }
+.badge.st-nuevo { box-shadow: 0 0 14px rgba(232, 184, 74, .3); }
+.badge.st-confirmado { background: rgba(52, 210, 122, .1); color: var(--jade-hi); border-color: var(--line-jade); }
+.badge.st-entregado { background: transparent; color: var(--dim); border-color: var(--line); }
+.badge.st-cancelado { background: rgba(226, 85, 63, .08); color: var(--carnelian); border-color: rgba(226, 85, 63, .45); }
+.order-when { margin: -6px 0 16px; font-size: .88rem; }
+.order-note {
+  margin: 14px 0 0; padding: 10px 12px;
+  border-radius: 12px; border: 1px dashed var(--line-2);
+  background: rgba(232, 184, 74, .05);
+  font-size: .9rem;
+}
 
 /* --------------------------------------------------------------- pie */
 .site-footer {
@@ -1109,7 +1141,7 @@ html.cart-lock, html.cart-lock body { overflow: hidden; }
   border-top: 1px solid var(--line);
   background: rgba(4, 6, 4, .7);
 }
-.btn.is-disabled { opacity: .4; filter: grayscale(.7); box-shadow: none; cursor: not-allowed; }
+.btn:disabled { opacity: .4; filter: grayscale(.7); box-shadow: none; cursor: not-allowed; }
 .cart-hint { margin: 0; text-align: center; font-size: .8rem; color: var(--jade-hi); }
 .cart-clear {
   justify-self: center;

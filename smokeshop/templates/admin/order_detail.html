@@ -1,0 +1,87 @@
+{% extends "admin/_layout.html" %}
+{% block section %}pedidos{% endblock %}
+{% block title %}Pedido {{ order.id|pedido }} · {{ settings.store_name }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Pedido {{ order.id|pedido }}</h1>
+  <span class="badge st-{{ order.status }}">{{ order_statuses[order.status] }}</span>
+</div>
+<p class="muted order-when">
+  Llegó: {{ order.created_at|fecha_hora }}
+  {% if order.updated_at != order.created_at %}<br>Reenviado: {{ order.updated_at|fecha_hora }} (aquí ves la última versión){% endif %}
+</p>
+
+<div class="grid grid-2">
+  <section class="card gilded">
+    <h2><svg class="icon" aria-hidden="true"><use href="#i-bag"/></svg> Productos</h2>
+    <ul class="list order-lines">
+      {% for line in order.lines %}
+      <li>
+        <span class="main">
+          <strong>{{ line.qty }} × {{ line.title }}</strong>
+          <small>{% if line.price is not none %}{{ line.price|cop }} c/u{% else %}{{ line.label or 'Precio a confirmar' }}{% endif %}</small>
+        </span>
+        <b class="order-total{{ ' pending' if line.price is none }}">{{ (line.price * line.qty)|cop if line.price is not none else 'Por confirmar' }}</b>
+      </li>
+      {% endfor %}
+    </ul>
+    <div class="cart-sum">
+      <span>Total</span><strong>{{ (order.total|cop) if order.total else 'Por confirmar' }}{% if order.total and order.pending %} +{% endif %}</strong>
+    </div>
+    {% if order.pending %}<p class="cart-pending">Hay productos con precio a confirmar.</p>{% endif %}
+  </section>
+
+  <section class="card">
+    <h2><svg class="icon" aria-hidden="true"><use href="#i-users"/></svg> Cliente</h2>
+    <p style="margin-bottom:12px">
+      <strong>{{ order.name or order.customer_name or 'Sin nombre' }}</strong><br>
+      {% if order.customer_id %}
+        <a href="{{ url_for('admin_customer_detail', customer_id=order.customer_id) }}">{{ order.customer_code }} · {{ order.customer_name }}</a>
+      {% elif order.code %}
+        <small>Escribió el código {{ order.code }}, pero no corresponde a ningún cliente.</small>
+      {% else %}
+        <small>No escribió código de cliente.</small>
+      {% endif %}
+    </p>
+    {% if order.customer_id %}
+      {% if balance %}
+      <div class="reward">
+        <div class="pct">{{ balance|cop }}</div>
+        <div class="info"><strong>Descuentos para usar</strong><br><small>Pidió usarlos: canjéalos en <a href="{{ url_for('admin_customer_detail', customer_id=order.customer_id) }}">su ficha</a> al cobrar.</small></div>
+      </div>
+      {% else %}
+      <p class="muted">No tiene descuentos pendientes.</p>
+      {% endif %}
+    {% endif %}
+    {% if order.note %}<p class="order-note"><strong>Nota:</strong> {{ order.note }}</p>{% endif %}
+    {% if order.customer_phone %}
+    <a class="btn block ghost mt" href="https://wa.me/{{ order.customer_phone|wa }}" target="_blank" rel="noopener">
+      <svg class="icon" aria-hidden="true"><use href="#i-chat"/></svg>Escribirle por WhatsApp
+    </a>
+    {% endif %}
+
+    <p class="form-group-title mt">Cambiar estado</p>
+    <div class="btn-row">
+      {% for key, verb in [('confirmado', 'Confirmar'), ('entregado', 'Marcar entregado'), ('cancelado', 'Cancelar pedido'), ('nuevo', 'Marcar como nuevo')] if key != order.status %}
+      <form method="post" action="{{ url_for('admin_order_status', order_id=order.id) }}" class="inline">
+        <input type="hidden" name="csrf" value="{{ csrf_token }}">
+        <input type="hidden" name="status" value="{{ key }}">
+        <button class="btn small {{ {'confirmado': 'leaf', 'cancelado': 'danger'}.get(key, 'ghost') }}" type="submit">{{ verb }}</button>
+      </form>
+      {% endfor %}
+    </div>
+  </section>
+</div>
+
+<section class="card mt">
+  <a href="{{ url_for('admin_orders') }}"><svg class="icon" aria-hidden="true"><use href="#i-scroll"/></svg> Volver a todos los pedidos</a>
+  <details class="danger-zone mt">
+    <summary>Eliminar pedido</summary>
+    <form method="post" action="{{ url_for('admin_order_delete', order_id=order.id) }}"
+          onsubmit='return confirm({{ ("¿Eliminar el pedido " ~ (order.id|pedido) ~ "? No se puede deshacer.")|tojson }})'>
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <button class="btn small danger" type="submit">Eliminar definitivamente</button>
+    </form>
+  </details>
+</section>
+{% endblock %}

@@ -128,8 +128,7 @@
 </button>
 
 <div class="cart-overlay" data-cart-close></div>
-<section class="cart" id="cart" role="dialog" aria-modal="true" aria-labelledby="cart-title"
-         data-store="{{ settings.store_name }}" data-whatsapp="{{ settings.whatsapp }}">
+<section class="cart" id="cart" role="dialog" aria-modal="true" aria-labelledby="cart-title">
   <header class="cart-head">
     <h2 id="cart-title"><svg class="icon" aria-hidden="true"><use href="#i-bag"/></svg> Tu <em>pedido</em></h2>
     <button type="button" class="cart-x" data-cart-close aria-label="Cerrar el pedido"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
@@ -145,22 +144,28 @@
     <div class="cart-fields" data-cart-fields>
       <div class="field">
         <label for="cart-name">Tu nombre <span class="muted">(opcional)</span></label>
-        <input id="cart-name" type="text" autocomplete="name" maxlength="60" data-cart-field="name">
+        <input id="cart-name" name="name" form="cart-form" type="text" enterkeyhint="next" autocomplete="name" maxlength="60" data-cart-field="name">
       </div>
       <div class="field">
         <label for="cart-code">Tu código de cliente <span class="muted">(opcional, para usar tus descuentos)</span></label>
-        <input class="code-input" id="cart-code" type="text" placeholder="{{ settings.code_prefix }}-XXXXX" maxlength="16" autocomplete="off" autocapitalize="characters" data-cart-field="code">
+        <input class="code-input" id="cart-code" name="code" form="cart-form" type="text" enterkeyhint="next" placeholder="{{ settings.code_prefix }}-XXXXX" maxlength="16" autocomplete="off" autocapitalize="characters" data-cart-field="code">
       </div>
       <div class="field">
         <label for="cart-notes">Nota para la tienda <span class="muted">(opcional)</span></label>
-        <textarea id="cart-notes" rows="2" maxlength="300" placeholder="Paso a recoger a las 6 p. m., dirección de entrega…" data-cart-field="notes"></textarea>
+        <textarea id="cart-notes" name="note" form="cart-form" rows="2" maxlength="300" placeholder="Paso a recoger a las 6 p. m., dirección de entrega…" data-cart-field="notes"></textarea>
       </div>
     </div>
   </div>
   <footer class="cart-foot">
-    <a class="btn leaf block" data-cart-send href="https://wa.me/{{ settings.whatsapp }}" target="_blank" rel="noopener">
-      <svg class="icon" aria-hidden="true"><use href="#i-chat"/></svg>Pedir por WhatsApp
-    </a>
+    {# El servidor guarda el pedido (historial del panel) y abre el chat con el pedido escrito. #}
+    <form id="cart-form" method="post" action="{{ url_for('place_order') }}" target="_blank" rel="noopener" data-cart-form>
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <input type="hidden" name="items" data-cart-order>
+      <input type="hidden" name="token" data-cart-token>
+      <button class="btn leaf block" type="submit" data-cart-send>
+        <svg class="icon" aria-hidden="true"><use href="#i-chat"/></svg>Pedir por WhatsApp
+      </button>
+    </form>
     <p class="cart-hint" data-cart-sent hidden>¿Ya enviaste el mensaje en WhatsApp? Puedes vaciar el pedido.</p>
     <button type="button" class="cart-clear" data-cart-clear>Vaciar pedido</button>
   </footer>
