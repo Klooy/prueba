@@ -11,6 +11,13 @@
   </form>
 </div>
 
+{% if not settings.whatsapp %}
+<div class="flash error notice">
+  <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>
+  <span>Configura el WhatsApp de la tienda: mientras no haya número, el menú se muestra sin carrito de pedidos. <a href="{{ url_for('admin_settings') }}#pedidos">Ir a Ajustes</a></span>
+</div>
+{% endif %}
+
 <div class="stats">
   <div class="stat"><div class="num">{{ stats.customers }}</div><div class="lbl">Clientes</div></div>
   <div class="stat"><div class="num">{{ stats.month }}</div><div class="lbl">Referidos este mes</div></div>

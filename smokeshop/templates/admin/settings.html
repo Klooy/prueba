@@ -10,8 +10,31 @@
     <h2>Tienda</h2>
     <div class="field"><label for="store_name">Nombre</label><input id="store_name" name="store_name" type="text" value="{{ settings.store_name }}"></div>
     <div class="field"><label for="tagline">Frase del menú</label><input id="tagline" name="tagline" type="text" value="{{ settings.tagline }}"></div>
-    <div class="field"><label for="whatsapp">WhatsApp de la tienda <span class="muted">(con código de país)</span></label><input id="whatsapp" name="whatsapp" type="tel" value="{{ settings.whatsapp }}" placeholder="5215512345678"></div>
     <div class="field"><label for="code_prefix">Prefijo de códigos</label><input id="code_prefix" name="code_prefix" type="text" maxlength="6" value="{{ settings.code_prefix }}"></div>
+  </section>
+
+  <section class="card" id="pedidos">
+    <h2><svg class="icon" aria-hidden="true"><use href="#i-chat"/></svg> Pedidos por WhatsApp</h2>
+    <p class="muted">Los clientes arman su pedido en el menú del día y, al tocar <strong>Pedir por WhatsApp</strong>, se abre el chat con este número y el pedido ya escrito.</p>
+    {# Guardado se muestra con formato; si hubo un error se deja tal cual lo escribieron. #}
+    {% set wa_input = (wa_saved|phone) if settings.whatsapp == wa_saved else settings.whatsapp %}
+    <div class="field">
+      <label for="whatsapp">WhatsApp de la tienda</label>
+      <input id="whatsapp" name="whatsapp" type="tel" inputmode="tel" autocomplete="off"
+             value="{{ wa_input }}" placeholder="+57 300 123 4567" aria-describedby="whatsapp-hint">
+      <small class="hint" id="whatsapp-hint">Con el indicativo del país. Si escribes un número colombiano de 10 dígitos (300… o 601…), se le agrega el 57. Déjalo vacío para desactivar los pedidos.</small>
+    </div>
+    {% if wa_saved %}
+    <div class="flash ok">
+      <svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>
+      <span>Los pedidos llegan a <strong class="tel">{{ wa_saved|phone }}</strong> · <a href="https://wa.me/{{ wa_saved }}" target="_blank" rel="noopener">Probar enlace</a></span>
+    </div>
+    {% else %}
+    <div class="flash error">
+      <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>
+      <span>Sin número todavía: el menú se muestra sin carrito de pedidos.</span>
+    </div>
+    {% endif %}
   </section>
 
   <section class="card">

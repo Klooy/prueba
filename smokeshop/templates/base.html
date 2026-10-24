@@ -53,6 +53,7 @@
     <a class="staff-link" href="{{ url_for('admin_dashboard') }}"><svg class="icon" aria-hidden="true"><use href="#i-lock"/></svg>Acceso administrador</a>
   </footer>
   {% endblock %}
+  {% block overlay %}{% endblock %}
   <script>
     (function () {
       var els = document.querySelectorAll('.reveal');

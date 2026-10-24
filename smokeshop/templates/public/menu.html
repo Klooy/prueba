@@ -68,6 +68,18 @@
           {% if p.price %}
           <div class="leader"><span class="lbl">Precio</span><span class="dots"></span>{{ price(p.price) }}</div>
           {% endif %}
+          {% if settings.whatsapp %}
+          <div class="add" data-product="{{ p.id }}">
+            <button type="button" class="btn small ghost add-btn" data-add>
+              <svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Agregar al pedido
+            </button>
+            <div class="stepper" data-stepper hidden>
+              <button type="button" data-dec aria-label="Quitar uno: {{ p.title }}"><svg class="icon" aria-hidden="true"><use href="#i-minus"/></svg></button>
+              <span class="qty"><b data-qty>1</b> en tu pedido</span>
+              <button type="button" data-inc aria-label="Agregar otro: {{ p.title }}"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg></button>
+            </div>
+          </div>
+          {% endif %}
         </div>
       </article>
       {% endfor %}
@@ -102,7 +114,62 @@
   </div>
 </section>
 {% endblock %}
+
+{% block overlay %}
+{% if products and settings.whatsapp %}
+{# ---------- carrito: vive en este navegador y se envía al WhatsApp de Ajustes (sin número no hay carrito).
+   Va fuera de <main> para quedar por encima del encabezado fijo. ---------- #}
+<script type="application/json" id="menu-data">{{ menu_items|tojson }}</script>
+
+<button class="cart-fab" type="button" id="cart-open" aria-controls="cart" aria-expanded="false" hidden>
+  <span class="cart-fab-icon"><svg class="icon" aria-hidden="true"><use href="#i-bag"/></svg><span class="cart-count" data-cart-count>0</span></span>
+  <span class="cart-fab-text">Ver pedido</span>
+  <span class="cart-fab-total" data-cart-fab-total></span>
+</button>
+
+<div class="cart-overlay" data-cart-close></div>
+<section class="cart" id="cart" role="dialog" aria-modal="true" aria-labelledby="cart-title"
+         data-store="{{ settings.store_name }}" data-whatsapp="{{ settings.whatsapp }}">
+  <header class="cart-head">
+    <h2 id="cart-title"><svg class="icon" aria-hidden="true"><use href="#i-bag"/></svg> Tu <em>pedido</em></h2>
+    <button type="button" class="cart-x" data-cart-close aria-label="Cerrar el pedido"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+  </header>
+  <div class="cart-body">
+    <p class="cart-note" data-cart-dropped hidden></p>
+    <ul class="cart-items" data-cart-items></ul>
+    <p class="cart-empty" data-cart-empty>Aún no has agregado productos. Toca <strong>Agregar al pedido</strong> en el menú.</p>
+    <div class="cart-sum" data-cart-sum-row>
+      <span>Total</span><strong data-cart-sum>$0</strong>
+    </div>
+    <p class="cart-pending" data-cart-pending hidden>Algunos productos tienen precio a confirmar por la tienda.</p>
+    <div class="cart-fields" data-cart-fields>
+      <div class="field">
+        <label for="cart-name">Tu nombre <span class="muted">(opcional)</span></label>
+        <input id="cart-name" type="text" autocomplete="name" maxlength="60" data-cart-field="name">
+      </div>
+      <div class="field">
+        <label for="cart-code">Tu código de cliente <span class="muted">(opcional, para usar tus descuentos)</span></label>
+        <input class="code-input" id="cart-code" type="text" placeholder="{{ settings.code_prefix }}-XXXXX" maxlength="16" autocomplete="off" autocapitalize="characters" data-cart-field="code">
+      </div>
+      <div class="field">
+        <label for="cart-notes">Nota para la tienda <span class="muted">(opcional)</span></label>
+        <textarea id="cart-notes" rows="2" maxlength="300" placeholder="Paso a recoger a las 6 p. m., dirección de entrega…" data-cart-field="notes"></textarea>
+      </div>
+    </div>
+  </div>
+  <footer class="cart-foot">
+    <a class="btn leaf block" data-cart-send href="https://wa.me/{{ settings.whatsapp }}" target="_blank" rel="noopener">
+      <svg class="icon" aria-hidden="true"><use href="#i-chat"/></svg>Pedir por WhatsApp
+    </a>
+    <p class="cart-hint" data-cart-sent hidden>¿Ya enviaste el mensaje en WhatsApp? Puedes vaciar el pedido.</p>
+    <button type="button" class="cart-clear" data-cart-clear>Vaciar pedido</button>
+  </footer>
+  <p class="sr-only" aria-live="polite" data-cart-live></p>
+</section>
+{% endif %}
+{% endblock %}
 {% block scripts %}
+{% if products and settings.whatsapp %}<script src="{{ url_for('static', filename='js/cart.js', v=asset_v) }}" defer></script>{% endif %}
 <script>
   document.querySelectorAll('.chip').forEach(function (chip) {
     chip.addEventListener('click', function () {
