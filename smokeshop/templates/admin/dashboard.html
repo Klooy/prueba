@@ -11,6 +11,12 @@
   </form>
 </div>
 
+{% if storage.temporary %}
+<div class="flash error notice">
+  <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>
+  <span>Los datos o las fotos se guardan en un espacio temporal de Vercel y se borrarán. <a href="{{ url_for('admin_settings') }}#datos">Ver dónde se guardan</a></span>
+</div>
+{% endif %}
 {% if not settings.whatsapp %}
 <div class="flash error notice">
   <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>

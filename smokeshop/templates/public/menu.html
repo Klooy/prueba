@@ -54,7 +54,7 @@
       <article class="product reveal tone-{{ loop.index0 % 3 }}{% if p.featured %} gilded{% endif %}" data-category="{{ p.category }}" style="--d: {{ loop.index0 % 3 }}">
         <div class="arch">
           {% if p.image %}
-            <img src="{{ url_for('uploaded', name=p.image) }}" alt="{{ p.title }}" loading="lazy">
+            <img src="{{ image_url(p.image) }}" alt="{{ p.title }}" loading="lazy">
           {% else %}
             <div class="altar" aria-hidden="true"><span class="stem-glow"></span><svg class="icon"><use href="#i-leaf"/></svg></div>
           {% endif %}

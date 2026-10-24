@@ -44,4 +44,22 @@
 
   <button class="btn block mt" type="submit">Guardar ajustes</button>
 </form>
+
+<section class="card narrow mt" id="datos">
+  <h2><svg class="icon" aria-hidden="true"><use href="#i-lock"/></svg> Dónde se guardan los datos</h2>
+  <ul class="list">
+    {% for label, row in [('Base de datos', storage.db), ('Fotos', storage.photos)] %}
+    <li>
+      <span class="main"><strong>{{ label }}</strong><small>{{ row[1] }}</small></span>
+      <span class="badge {{ 'faience' if row[2] else 'st-cancelado' }}">{{ row[0] }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% if storage.temporary %}
+  <div class="flash error">
+    <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>
+    <span>Lo que cargues aquí se perderá. En Vercel → Settings → Environment Variables revisa <strong>DATABASE_URL</strong>, <strong>SUPABASE_URL</strong> y <strong>SUPABASE_SECRET_KEY</strong>, marcadas para <em>Production</em> y <em>Preview</em>, y vuelve a desplegar.</span>
+  </div>
+  {% endif %}
+</section>
 {% endblock %}
