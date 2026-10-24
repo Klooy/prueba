@@ -8,6 +8,7 @@ Sistema privado para una smoke shop:
 - **Pedidos por WhatsApp**: el cliente agrega productos del menú a su pedido y, al tocar **Pedir por WhatsApp**, se abre el chat de la tienda con el pedido ya escrito (número de pedido, productos, cantidades, total en pesos y, si quiere, su nombre, su código de cliente y una nota). El número de la tienda se define en **Ajustes → Pedidos por WhatsApp**; mientras no haya uno, el menú se muestra sin carrito. El carrito vive en el navegador del cliente hasta que lo envía.
 - **Historial de pedidos**: cada pedido enviado queda en **Pedidos** con el mismo número que llega al chat (`#0001`). Los precios se toman del menú del día en el servidor, no del navegador. Si el cliente vuelve a enviar el mismo carrito, se actualiza ese pedido en vez de duplicarlo. Se filtra por estado (nuevo, confirmado, entregado, cancelado) y se busca por número, nombre o código. La ficha del pedido muestra los productos, la nota y, si el cliente escribió su código, sus descuentos pendientes. La barra del panel cuenta los pedidos nuevos y la ficha de cada cliente lista sus pedidos. Las horas van en hora de Colombia (UTC−5).
 - **Vista pública**: menú del día filtrable por categoría, consulta de "Mi código" y enlace de invitación para compartir por WhatsApp.
+- **Datos**: en local, un archivo SQLite; en producción, Postgres en Supabase (`DATABASE_URL`) y las fotos en Supabase Storage.
 - **Diseño**: mobile-first, estética de templo nocturno de lujo (oro, jade y humo violeta). El logo es una ilustración de Anubis con un amuleto de cannabis; `python tools/brand_assets.py imagen.jpg` genera a partir de ella la imagen de la portada, el logo del encabezado y los iconos.
 
 ## Ejecutar
@@ -26,15 +27,28 @@ En producción:
 SECRET_KEY="una-clave-larga" gunicorn -w 2 -b 0.0.0.0:8000 app:app
 ```
 
-Variables opcionales: `SECRET_KEY`, `DATABASE` (ruta del SQLite; por defecto `instance/smokeshop.db`), `UPLOAD_FOLDER`, `PORT` y `STORE_WHATSAPP` (número para pedidos, p. ej. `573001234567`; se usa mientras en **Ajustes** no haya uno guardado).
+Variables opcionales: `SECRET_KEY`, `DATABASE` (ruta del SQLite; por defecto `instance/smokeshop.db`), `DATABASE_URL` (Postgres; si está, se usa en vez de SQLite), `UPLOAD_FOLDER`, `PORT`, `STORE_WHATSAPP` (número para pedidos, p. ej. `573001234567`; se usa mientras en **Ajustes** no haya uno guardado) y las de Supabase Storage (`SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `SUPABASE_BUCKET`).
 
-## Vista previa en Vercel (solo para ver el diseño)
+## Producción: Vercel + Supabase
 
-1. En Vercel: **Add New → Project**, importa el repositorio y pon `smokeshop` como **Root Directory**.
-2. En **Environment Variables** agrega `ADMIN_PASSWORD` (la contraseña del panel), `SECRET_KEY` (un texto largo y aleatorio) y `STORE_WHATSAPP` (el WhatsApp que recibe los pedidos, con indicativo: `573001234567`).
-3. **Deploy**.
+1. **Supabase**: crea un proyecto (región *East US (North Virginia)*, la misma de Vercel) y, en **Storage**, un bucket público llamado `productos`.
+2. **Vercel**: **Add New → Project**, importa el repositorio y pon `smokeshop` como **Root Directory**.
+3. En **Environment Variables** de Vercel:
 
-En Vercel la app arranca con productos y clientes de ejemplo (`DEMO_DATA=1` por defecto; pon `0` para desactivarlo). Todo lo que cambies, incluidos los pedidos del historial, se guarda en `/tmp` y **se pierde** cuando Vercel recicla la función, y cada instancia tiene su propia copia; por eso el WhatsApp conviene ponerlo en `STORE_WHATSAPP` y no solo en Ajustes. Para uso real hace falta Postgres + almacenamiento de archivos, o un hosting con disco persistente.
+   | Variable | Valor |
+   |---|---|
+   | `DATABASE_URL` | Cadena de conexión de Supabase: **Connect → Transaction pooler** (puerto 6543), con tu contraseña |
+   | `SUPABASE_URL` | `https://<proyecto>.supabase.co` |
+   | `SUPABASE_SECRET_KEY` | Clave secreta (`sb_secret_…`) o `service_role` de **Project Settings → API Keys** |
+   | `ADMIN_PASSWORD` | Contraseña del panel |
+   | `SECRET_KEY` | Un texto largo y aleatorio |
+   | `STORE_WHATSAPP` | WhatsApp que recibe los pedidos, con indicativo: `573001234567` |
+
+4. **Deploy**.
+
+Las tablas se crean solas en el primer arranque, con *Row Level Security* activado y sin políticas: nadie puede leerlas con la API pública de Supabase, solo la app con la contraseña de la base. Supabase lo muestra como un aviso informativo; es lo esperado. Con una base propia la app arranca vacía (sin datos de ejemplo). Las fotos grandes se reducen en el navegador antes de subirlas, porque Vercel no recibe envíos de más de 4,5 MB.
+
+Sin `DATABASE_URL`, Vercel sirve como vista previa: arranca con productos y clientes de ejemplo (`DEMO_DATA=1`) y todo lo que cambies se guarda en `/tmp` y **se pierde** cuando la función se recicla.
 
 ## Rutas
 
@@ -52,4 +66,7 @@ El nombre de la tienda, la frase del menú, el prefijo de los códigos y el What
 
 ```bash
 python -m pytest -q
+TEST_DATABASE_URL=postgresql://postgres@localhost:5432/pruebas python -m pytest -q   # la misma suite sobre Postgres
 ```
+
+Con `TEST_DATABASE_URL` cada prueba borra y recrea el esquema `public` de esa base: usa una base solo para pruebas.

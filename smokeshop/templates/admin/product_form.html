@@ -25,12 +25,13 @@
     <textarea id="description" name="description" placeholder="Lo que lo hace especial hoy…">{{ product.description }}</textarea>
   </div>
   <div class="field">
-    <label for="image">Foto <span class="muted">(opcional, máx. 6 MB)</span></label>
+    <label for="image">Foto <span class="muted">(opcional; las fotos grandes se reducen solas)</span></label>
     {% if product.image %}
-      <img src="{{ url_for('uploaded', name=product.image) }}" alt="" style="width:100%;max-height:220px;object-fit:cover;border-radius:10px;margin-bottom:8px">
+      <img src="{{ image_url(product.image) }}" alt="" style="width:100%;max-height:220px;object-fit:cover;border-radius:10px;margin-bottom:8px">
       <label class="check" style="margin-bottom:10px"><input type="checkbox" name="remove_image" value="1"> Quitar foto actual</label>
     {% endif %}
     <input id="image" name="image" type="file" accept="image/*">
+    <small class="hint" data-photo-status hidden></small>
   </div>
   <div class="field"><label class="check"><input type="checkbox" name="featured" value="1" {% if product.featured %}checked{% endif %}> Destacar (aparece primero, con marco dorado)</label></div>
   <div class="field"><label class="check"><input type="checkbox" name="active" value="1" {% if product.active %}checked{% endif %}> Visible en el menú de hoy</label></div>
@@ -44,4 +45,49 @@
   <button class="btn small danger" type="submit">Borrar producto</button>
 </form>
 {% endif %}
+{% endblock %}
+{% block scripts %}
+<script>
+  /* Las fotos del celular pesan varios MB: se reducen aquí (máx. 1600 px, JPEG) antes de
+     subirlas. Vercel no recibe envíos de más de 4,5 MB y así el menú carga más rápido. */
+  (function () {
+    var input = document.getElementById("image");
+    var status = document.querySelector("[data-photo-status]");
+    var submit = input.form.querySelector('button[type="submit"]');
+    var MAX_SIDE = 1600;
+    if (!window.DataTransfer || !HTMLCanvasElement.prototype.toBlob) return;
+
+    input.addEventListener("change", function () {
+      var file = input.files[0];
+      if (!file || !/^image\/(jpeg|png|webp)$/.test(file.type)) return;
+      var img = new Image();
+      var url = URL.createObjectURL(file);
+      submit.disabled = true;
+      img.onload = function () {
+        URL.revokeObjectURL(url);
+        var scale = Math.min(1, MAX_SIDE / Math.max(img.naturalWidth, img.naturalHeight));
+        if (scale === 1 && file.size < 1.5 * 1024 * 1024) { submit.disabled = false; return; }
+        var canvas = document.createElement("canvas");
+        canvas.width = Math.round(img.naturalWidth * scale);
+        canvas.height = Math.round(img.naturalHeight * scale);
+        var ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#040604";             // fondo para PNG con transparencia
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob(function (blob) {
+          submit.disabled = false;
+          if (!blob || blob.size >= file.size) return;
+          var name = file.name.replace(/\.[^.]+$/, "") + ".jpg";
+          var dt = new DataTransfer();
+          dt.items.add(new File([blob], name, { type: "image/jpeg" }));
+          input.files = dt.files;
+          status.textContent = "Foto lista: " + Math.round(file.size / 1024) + " KB → " + Math.round(blob.size / 1024) + " KB.";
+          status.hidden = false;
+        }, "image/jpeg", 0.85);
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); submit.disabled = false; };
+      img.src = url;
+    });
+  })();
+</script>
 {% endblock %}

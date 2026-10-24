@@ -17,13 +17,23 @@ os.environ.setdefault("UPLOAD_FOLDER", os.path.join(_tmp, "uploads"))
 from app import create_app  # noqa: E402
 
 
+# Con TEST_DATABASE_URL (un Postgres de pruebas) la suite corre contra Postgres, como en Supabase.
+PG_URL = os.environ.get("TEST_DATABASE_URL", "")
+
+
 @pytest.fixture
 def app(tmp_path):
-    return create_app({
+    config = {
         "DATABASE": str(tmp_path / "test.db"),
         "UPLOAD_FOLDER": str(tmp_path / "uploads"),
         "SECRET_KEY": "test",
-    })
+    }
+    if PG_URL:
+        import psycopg
+        with psycopg.connect(PG_URL, autocommit=True) as con:
+            con.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public")
+        config["DATABASE_URL"] = PG_URL
+    return create_app(config)
 
 
 @pytest.fixture
@@ -586,3 +596,69 @@ def test_order_date_filter(app):
     assert fecha_hora(today.isoformat()) == "Hoy, 3:42 p. m."
     assert fecha_hora((today - timedelta(days=1)).replace(hour=0, minute=5).isoformat()) == "Ayer, 12:05 a. m."
     assert fecha_hora("2025-01-09T12:30:00") == "9 ene 2025, 12:30 p. m."
+
+
+class FakeStorage:
+    """Hace de Supabase Storage: guarda las peticiones en vez de enviarlas."""
+
+    def __init__(self, fail=None):
+        self.requests, self.fail = [], fail
+
+    def __call__(self, req, timeout=None):
+        self.requests.append(req)
+        if self.fail:
+            raise self.fail
+        return io.BytesIO(b"{}")
+
+
+def storage_app(tmp_path, monkeypatch, storage):
+    import app as app_module
+    monkeypatch.setattr(app_module.urllib.request, "urlopen", storage)
+    return create_app({"DATABASE": str(tmp_path / "s.db"), "UPLOAD_FOLDER": str(tmp_path / "u"), "SECRET_KEY": "t",
+                       "SUPABASE_URL": "https://abc.supabase.co/", "SUPABASE_SECRET_KEY": "sb_secret_x"})
+
+
+def test_photos_go_to_supabase_storage(tmp_path, monkeypatch):
+    storage = FakeStorage()
+    client = storage_app(tmp_path, monkeypatch, storage).test_client()
+    login(client)
+    img = (io.BytesIO(b"\x89PNG\r\n\x1a\nfake"), "фото.png")              # nombre sin letras latinas
+    post(client, "/admin/menu/nuevo", {"title": "Con foto", "active": "1", "image": img},
+         content_type="multipart/form-data")
+    (up,) = storage.requests
+    assert up.get_method() == "POST" and up.data == b"\x89PNG\r\n\x1a\nfake"
+    assert re.fullmatch(r"https://abc\.supabase\.co/storage/v1/object/productos/[0-9a-f]{32}\.png", up.full_url)
+    assert up.get_header("Apikey") == "sb_secret_x" and up.get_header("Authorization") == "Bearer sb_secret_x"
+    assert up.get_header("Content-type") == "image/png"
+    name = up.full_url.rsplit("/", 1)[1]
+    assert f'src="https://abc.supabase.co/storage/v1/object/public/productos/{name}"' in client.get("/").get_data(as_text=True)
+    assert not os.listdir(tmp_path / "u")                                      # nada en el disco
+
+    post(client, "/admin/menu/1/borrar")
+    assert storage.requests[-1].get_method() == "DELETE" and storage.requests[-1].full_url.endswith("/productos/" + name)
+
+
+def test_photo_upload_error_is_explained(tmp_path, monkeypatch):
+    import urllib.error
+    error = urllib.error.HTTPError("https://abc.supabase.co", 404, "Not Found", {}, io.BytesIO(b'{"message":"Bucket not found"}'))
+    client = storage_app(tmp_path, monkeypatch, FakeStorage(fail=error)).test_client()
+    login(client)
+    img = (io.BytesIO(b"\x89PNG\r\n\x1a\nfake"), "foto.png")
+    resp = post(client, "/admin/menu/nuevo", {"title": "Con foto", "active": "1", "image": img},
+                content_type="multipart/form-data")
+    assert "No se pudo guardar la foto en Supabase" in resp.get_data(as_text=True)
+    assert "Con foto" not in client.get("/").get_data(as_text=True)
+
+
+def test_postgres_adapter_speaks_like_sqlite():
+    from app import PgDB, PgRow
+    assert PgDB._sql("SELECT * FROM t WHERE a LIKE ? AND b = ? AND c = '5%'") == (
+        "SELECT * FROM t WHERE a ILIKE %s AND b = %s AND c = '5%%'")
+    row = PgRow((7, "Ana"), {"id": 0, "name": 1})
+    assert row[0] == 7 and row["name"] == "Ana" and dict(row) == {"id": 7, "name": "Ana"}
+    (first, _) = row
+    assert first == 7
+    counts = PgRow(("nuevo", 2), {"status": 0, "count": 1})
+    assert dict([counts]) == {"nuevo": 2}
+    from jinja2 import Environment
+    assert Environment().from_string("{{ r.count }}").render(r=counts) == "2"   # la columna, no un método
