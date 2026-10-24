@@ -31,7 +31,7 @@ DEFAULT_SETTINGS = {
     "store_name": "Templo de Anubis",
     "tagline": "Humo sagrado · Novedades frescas cada día",
     "code_prefix": "ANK",
-    "whatsapp": "",              # número de la tienda, solo dígitos con código de país
+    "whatsapp": "",              # WhatsApp de la tienda para pedidos: dígitos con indicativo (57...)
 }
 
 SCHEMA = """
@@ -162,6 +162,10 @@ def init_db():
         db.execute("ALTER TABLE rewards ADD COLUMN amount INTEGER NOT NULL DEFAULT 0")
     for key, value in DEFAULT_SETTINGS.items():
         db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (key, value))
+    # STORE_WHATSAPP llena el número si el administrador aún no lo ha configurado.
+    env_whatsapp = normalize_whatsapp(os.environ.get("STORE_WHATSAPP", ""))
+    if 10 <= len(env_whatsapp) <= 15:
+        db.execute("UPDATE settings SET value = ? WHERE key = 'whatsapp' AND value = ''", (env_whatsapp,))
     if os.environ.get("ADMIN_PASSWORD"):
         db.execute(
             "INSERT OR IGNORE INTO settings (key, value) VALUES ('admin_password', ?)",
@@ -222,6 +226,25 @@ def now():
 
 def normalize_phone(raw):
     return "".join(ch for ch in (raw or "") if ch.isdigit())
+
+
+def normalize_whatsapp(raw):
+    """Número para wa.me: solo dígitos, con indicativo del país y sin ceros al inicio.
+
+    Un número colombiano escrito sin indicativo (10 dígitos: celular 3…, fijo 60…) recibe el 57.
+    """
+    digits = normalize_phone(raw).lstrip("0")
+    if len(digits) == 10 and digits.startswith(("3", "60")):
+        digits = "57" + digits
+    return digits
+
+
+def phone_display(value):
+    """'573001234567' -> '+57 300 123 4567'; otros países: '+' y los dígitos."""
+    digits = normalize_phone(value)
+    if len(digits) == 12 and digits.startswith("57"):
+        return f"+57 {digits[2:5]} {digits[5:8]} {digits[8:]}"
+    return f"+{digits}" if digits else ""
 
 
 def normalize_code(raw):
@@ -359,11 +382,11 @@ def delete_image(name):
 
 
 def asset_version():
-    """Huella corta de las hojas de estilo: cambia cuando cambian, para invalidar la caché."""
+    """Huella corta de los estilos y el script del carrito: cambia cuando cambian, para invalidar la caché."""
     if "asset_v" not in ASSET_CACHE:
         digest = hashlib.md5()
-        for name in ("anubis.css", "fonts.css"):
-            with open(os.path.join(BASE_DIR, "static", "css", name), "rb") as fh:
+        for name in ("css/anubis.css", "css/fonts.css", "js/cart.js"):
+            with open(os.path.join(BASE_DIR, "static", name), "rb") as fh:
                 digest.update(fh.read())
         ASSET_CACHE["asset_v"] = digest.hexdigest()[:10]
     return ASSET_CACHE["asset_v"]
@@ -421,6 +444,7 @@ def register_hooks(app):
 
     app.template_filter("cop")(format_cop)
     app.template_filter("reward_value")(reward_value)
+    app.template_filter("phone")(phone_display)
 
     @app.template_filter("first_name")
     def first_name(value):
@@ -444,8 +468,18 @@ def register_public_routes(app):
         for p in products:
             if p["category"] and p["category"] not in categories:
                 categories.append(p["category"])
+        # Lo que necesita el carrito (en el navegador) para calcular totales y armar el pedido.
+        menu_items = [
+            {
+                "id": p["id"],
+                "title": p["title"],
+                "price": int(p["price"]) if p["price"].isdecimal() else None,
+                "label": format_cop(p["price"]) or p["price"],
+            }
+            for p in products
+        ]
         return render_template(
-            "public/menu.html", products=products, categories=categories,
+            "public/menu.html", products=products, categories=categories, menu_items=menu_items,
             today=datetime.now(),
         )
 
@@ -844,22 +878,29 @@ def register_admin_routes(app):
     @admin_required
     def admin_settings():
         if request.method == "POST":
-            for key in ("store_name", "tagline"):
-                set_setting(key, (request.form.get(key) or "").strip() or DEFAULT_SETTINGS[key])
-            set_setting("code_prefix",
-                        normalize_code(request.form.get("code_prefix"))[:6] or DEFAULT_SETTINGS["code_prefix"])
-            set_setting("whatsapp", normalize_phone(request.form.get("whatsapp")))
+            form = {k: (request.form.get(k) or "").strip()
+                    for k in ("store_name", "tagline", "code_prefix", "whatsapp")}
+            whatsapp = normalize_whatsapp(form["whatsapp"])
             new_pw = request.form.get("new_password", "")
+            error = None
+            if form["whatsapp"] and not 10 <= len(whatsapp) <= 15:
+                error = "Escribe el WhatsApp con el indicativo del país, por ejemplo 57 300 123 4567."
+            elif new_pw and len(new_pw) < 6:
+                error = "La nueva contraseña debe tener al menos 6 caracteres."
+            if error:
+                flash(error, "error")
+                return render_template("admin/settings.html", settings={**get_settings(), **form},
+                                       wa_saved=get_settings()["whatsapp"])
+            for key in ("store_name", "tagline"):
+                set_setting(key, form[key] or DEFAULT_SETTINGS[key])
+            set_setting("code_prefix", normalize_code(form["code_prefix"])[:6] or DEFAULT_SETTINGS["code_prefix"])
+            set_setting("whatsapp", whatsapp)
             if new_pw:
-                if len(new_pw) < 6:
-                    flash("La nueva contraseña debe tener al menos 6 caracteres.", "error")
-                    get_db().rollback()
-                    return redirect(url_for("admin_settings"))
                 set_setting("admin_password", generate_password_hash(new_pw))
             get_db().commit()
             flash("Ajustes guardados.", "ok")
             return redirect(url_for("admin_settings"))
-        return render_template("admin/settings.html")
+        return render_template("admin/settings.html", wa_saved=get_settings()["whatsapp"])
 
 
 app = create_app()

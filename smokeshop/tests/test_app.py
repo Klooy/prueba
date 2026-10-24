@@ -318,3 +318,122 @@ def test_settings_without_percentages(client):
     resp = post(client, "/admin/ajustes", {"store_name": "Templo", "tagline": "T", "code_prefix": "ank", "whatsapp": ""},
                 follow_redirects=True)
     assert "Ajustes guardados" in resp.get_data(as_text=True)
+
+
+def add_product(client, title, price="", **extra):
+    resp = post(client, "/admin/menu/nuevo", {"title": title, "price": price, "active": "1", **extra})
+    assert resp.status_code == 302, resp.get_data(as_text=True)
+
+
+def save_settings(client, whatsapp, **extra):
+    data = {"store_name": "Templo", "tagline": "T", "code_prefix": "ANK", "whatsapp": whatsapp, **extra}
+    return post(client, "/admin/ajustes", data, follow_redirects=True)
+
+
+def menu_data(html):
+    import json
+    raw = re.search(r'<script type="application/json" id="menu-data">(.*?)</script>', html, re.S).group(1)
+    return {item["title"]: item for item in json.loads(raw)}
+
+
+def test_whatsapp_helpers():
+    from app import normalize_whatsapp, phone_display
+    assert normalize_whatsapp("300 123 4567") == "573001234567"
+    assert normalize_whatsapp("+57 300-123-4567") == "573001234567"
+    assert normalize_whatsapp("0057 3001234567") == "573001234567"
+    assert normalize_whatsapp("(604) 444 1234") == "576044441234"
+    assert normalize_whatsapp("+1 (555) 010-9999") == "15550109999"
+    assert normalize_whatsapp("") == ""
+    assert phone_display("573001234567") == "+57 300 123 4567"
+    assert phone_display("15550109999") == "+15550109999"
+    assert phone_display("") == ""
+
+
+def test_cart_on_menu_sends_to_store_whatsapp(client):
+    login(client)
+    add_product(client, "Bong Osiris", "240.000")
+    add_product(client, "Kit sorpresa", "Consultar")
+    add_product(client, "Sin precio")
+    assert "Ajustes guardados" in save_settings(client, "300 123 4567").get_data(as_text=True)
+
+    html = client.get("/").get_data(as_text=True)
+    items = menu_data(html)
+    assert items["Bong Osiris"]["price"] == 240000 and items["Bong Osiris"]["label"] == "$240.000"
+    assert items["Kit sorpresa"]["price"] is None and items["Kit sorpresa"]["label"] == "Consultar"
+    assert items["Sin precio"]["price"] is None and items["Sin precio"]["label"] == ""
+    assert html.count("data-add>") == 3
+    assert 'data-whatsapp="573001234567"' in html
+    assert 'href="https://wa.me/573001234567"' in html and "Pedir por WhatsApp" in html
+    assert "js/cart.js" in html
+
+
+def test_no_cart_without_whatsapp_or_products(client):
+    login(client)
+    save_settings(client, "3001234567")
+    assert 'id="cart"' not in client.get("/").get_data(as_text=True)  # menú vacío: sin carrito
+    add_product(client, "Bong Osiris", "240.000")
+    assert 'id="cart"' in client.get("/").get_data(as_text=True)
+    save_settings(client, "")                                         # sin número: el menú queda sin carrito
+    html = client.get("/").get_data(as_text=True)
+    assert "Bong Osiris" in html
+    assert 'id="cart"' not in html and "data-add" not in html and "js/cart.js" not in html
+
+
+def test_menu_data_cannot_break_out_of_script(client):
+    login(client)
+    save_settings(client, "3001234567")
+    add_product(client, "</script><script>alert(1)</script>", "1000")
+    html = client.get("/").get_data(as_text=True)
+    assert "<script>alert(1)" not in html
+    assert "</script><script>alert(1)</script>" in menu_data(html)
+
+
+def test_whatsapp_setting_validation(client):
+    login(client)
+    assert client.get("/admin/ajustes").get_data(as_text=True).count('id="whatsapp"') == 1  # la etiqueta apunta al campo
+    html = save_settings(client, "12345").get_data(as_text=True)
+    assert "indicativo del país" in html
+    assert 'value="12345"' in html                    # lo que escribió sigue en el campo
+    assert "Sin número todavía" in html               # y no se guardó
+    html = save_settings(client, "letras").get_data(as_text=True)
+    assert "indicativo del país" in html
+
+    save_settings(client, "+57 300 123 4567")
+    html = client.get("/admin/ajustes").get_data(as_text=True)
+    assert 'value="+57 300 123 4567"' in html
+    assert 'Los pedidos llegan a <strong class="tel">+57 300 123 4567</strong>' in html
+    assert 'href="https://wa.me/573001234567"' in html
+
+    assert "Ajustes guardados" in save_settings(client, "").get_data(as_text=True)  # vacío = desactivado
+    assert "Sin número todavía" in client.get("/admin/ajustes").get_data(as_text=True)
+
+
+def test_dashboard_warns_until_whatsapp_is_set(client):
+    login(client)
+    html = client.get("/admin").get_data(as_text=True)
+    assert "Configura el WhatsApp" in html and 'href="/admin/ajustes#pedidos"' in html
+    assert 'id="pedidos"' in client.get("/admin/ajustes").get_data(as_text=True)
+    save_settings(client, "3001234567")
+    assert "Configura el WhatsApp" not in client.get("/admin").get_data(as_text=True)
+
+
+def test_store_whatsapp_env_only_fills_empty_value(tmp_path, monkeypatch):
+    from app import get_settings, set_setting, get_db
+    monkeypatch.setenv("STORE_WHATSAPP", "300 765 4321")
+    config = {"DATABASE": str(tmp_path / "w.db"), "UPLOAD_FOLDER": str(tmp_path / "u"), "SECRET_KEY": "t"}
+    app = create_app(config)
+    with app.app_context():
+        assert get_settings()["whatsapp"] == "573007654321"
+        set_setting("whatsapp", "573001112222")
+        get_db().commit()
+    app = create_app(config)                          # reinicio: no pisa lo que guardó el administrador
+    with app.app_context():
+        assert get_settings()["whatsapp"] == "573001112222"
+
+
+def test_my_code_remembers_code_for_cart(app, client):
+    login(client)
+    cid = new_customer(client, "Ana", "5551112222")
+    code = code_of(app, cid)
+    html = post(client, "/mi-codigo", {"code": code}).get_data(as_text=True)
+    assert f'perfil.code = "{code}"' in html

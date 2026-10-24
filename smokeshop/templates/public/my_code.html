@@ -56,4 +56,18 @@
   {% endif %}
 </div>
 {% endblock %}
-{% block scripts %}{% include "_copy.html" %}{% endblock %}
+{% block scripts %}
+{% include "_copy.html" %}
+{% if customer %}
+<script>
+  /* El carrito del menú propone este código al pedir por WhatsApp. */
+  (function () {
+    try {
+      var perfil = JSON.parse(localStorage.getItem("anubis-cliente") || "null") || {};
+      perfil.code = {{ customer.code|tojson }};
+      localStorage.setItem("anubis-cliente", JSON.stringify(perfil));
+    } catch (e) { /* modo privado */ }
+  })();
+</script>
+{% endif %}
+{% endblock %}
