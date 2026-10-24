@@ -662,3 +662,33 @@ def test_postgres_adapter_speaks_like_sqlite():
     assert dict([counts]) == {"nuevo": 2}
     from jinja2 import Environment
     assert Environment().from_string("{{ r.count }}").render(r=counts) == "2"   # la columna, no un método
+
+
+def test_panel_shows_where_data_is_kept(app, client, monkeypatch):
+    login(client)
+    ajustes = client.get("/admin/ajustes").get_data(as_text=True)
+    assert "Dónde se guardan los datos" in ajustes and "Archivo en este equipo" in ajustes
+    assert "espacio temporal" not in client.get("/admin").get_data(as_text=True)
+
+    import app as app_module
+    if not PG_URL:
+        monkeypatch.setattr(app_module, "ON_VERCEL", True)        # Vercel sin DATABASE_URL ni Supabase
+        assert "espacio temporal de Vercel" in client.get("/admin").get_data(as_text=True)
+        ajustes = client.get("/admin/ajustes").get_data(as_text=True)
+        assert "Se borra cada vez que Vercel reinicia" in ajustes and "Lo que cargues aquí se perderá" in ajustes
+
+    with app.test_request_context():
+        app.config.update(
+            DATABASE_URL="postgresql://postgres.abcdefghijklmnopqrst:clave-secreta@aws-0-us-east-1.pooler.supabase.com:6543/postgres",
+            SUPABASE_URL="https://abcdefghijklmnopqrst.supabase.co", SUPABASE_SECRET_KEY="sb_secret_x")
+        status = app_module.storage_status()
+    assert status["db"] == ("Supabase", "Proyecto abcdefghijklmnopqrst", True)
+    assert status["photos"] == ("Supabase Storage", "Bucket productos · proyecto abcdefghijklmnopqrst", True)
+    assert not status["temporary"] and "clave-secreta" not in repr(status)
+
+
+def test_env_values_tolerate_pasted_spaces_and_quotes(monkeypatch):
+    from app import env
+    monkeypatch.setenv("SUPABASE_URL", ' "https://abc.supabase.co" \n')
+    assert env("SUPABASE_URL") == "https://abc.supabase.co"
+    assert env("NO_EXISTE_ESTA_VARIABLE") == ""

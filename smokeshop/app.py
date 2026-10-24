@@ -18,7 +18,7 @@ import urllib.request
 import uuid
 from datetime import datetime, timedelta, timezone
 from functools import wraps
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 from flask import (
     Flask, abort, flash, g, redirect, render_template, request, send_from_directory, session,
@@ -133,16 +133,16 @@ def create_app(test_config=None):
     )
     default_uploads = (os.path.join(app.instance_path, "uploads") if ON_VERCEL
                        else os.path.join(BASE_DIR, "static", "uploads"))
-    database_url = os.environ.get("DATABASE_URL", "")
+    database_url = env("DATABASE_URL")
     app.config.update(
         SECRET_KEY=os.environ.get("SECRET_KEY") or _fallback_secret(app),
         DATABASE=os.environ.get("DATABASE") or os.path.join(app.instance_path, "smokeshop.db"),
         DATABASE_URL=database_url,            # Postgres (Supabase); vacío = SQLite en DATABASE
         UPLOAD_FOLDER=os.environ.get("UPLOAD_FOLDER") or default_uploads,
         # Fotos en Supabase Storage; sin estas variables van a UPLOAD_FOLDER.
-        SUPABASE_URL=os.environ.get("SUPABASE_URL", ""),
-        SUPABASE_SECRET_KEY=os.environ.get("SUPABASE_SECRET_KEY") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY", ""),
-        SUPABASE_BUCKET=os.environ.get("SUPABASE_BUCKET", "productos"),
+        SUPABASE_URL=env("SUPABASE_URL"),
+        SUPABASE_SECRET_KEY=env("SUPABASE_SECRET_KEY") or env("SUPABASE_SERVICE_ROLE_KEY"),
+        SUPABASE_BUCKET=env("SUPABASE_BUCKET") or "productos",
         # Datos de ejemplo solo en la vista previa de Vercel sin base de datos propia.
         DEMO_DATA=os.environ.get("DEMO_DATA", "1" if ON_VERCEL and not database_url else "0") == "1",
         MAX_CONTENT_LENGTH=6 * 1024 * 1024,
@@ -164,6 +164,11 @@ def create_app(test_config=None):
     register_public_routes(app)
     register_admin_routes(app)
     return app
+
+
+def env(name):
+    """Variable de entorno sin los espacios o comillas que a veces se pegan al copiarla."""
+    return os.environ.get(name, "").strip().strip("\"'")
 
 
 def _fallback_secret(app):
@@ -671,6 +676,31 @@ def delete_image(name):
         os.remove(path)
 
 
+def storage_status():
+    """Dónde quedan los datos y las fotos: (nombre, detalle, permanente) de cada uno."""
+    from flask import current_app
+    cfg = current_app.config
+    if cfg["DATABASE_URL"]:
+        parts = urlsplit(cfg["DATABASE_URL"])
+        user, host = parts.username or "", parts.hostname or ""
+        # id del proyecto: usuario "postgres.<id>" (pooler) o servidor "db.<id>.supabase.co"
+        ref = user.split(".", 1)[1] if "." in user else (host.split(".")[1] if host.startswith("db.") else "")
+        db = ("Supabase" if "supabase" in host else "Postgres", f"Proyecto {ref}" if ref else host, True)
+    elif ON_VERCEL:
+        db = ("Temporal", "Se borra cada vez que Vercel reinicia la app", False)
+    else:
+        db = ("Archivo en este equipo", os.path.basename(cfg["DATABASE"]), True)
+    target = storage_target()
+    if target:
+        ref = (urlsplit(target[0]).hostname or "").split(".")[0]
+        photos = ("Supabase Storage", f"Bucket {target[2]} · proyecto {ref}", True)
+    elif ON_VERCEL:
+        photos = ("Temporales", "Se borran cada vez que Vercel reinicia la app", False)
+    else:
+        photos = ("Disco de este equipo", "Carpeta de subidas", True)
+    return {"db": db, "photos": photos, "temporary": not (db[2] and photos[2])}
+
+
 def image_url(name):
     """Dirección pública de una foto del menú."""
     target = storage_target()
@@ -732,6 +762,7 @@ def register_hooks(app):
             # contador de la barra del panel
             "new_orders": get_db().execute(
                 "SELECT COUNT(*) FROM orders WHERE status = 'nuevo'").fetchone()[0] if admin else 0,
+            "storage": storage_status() if admin else None,
         }
 
     @app.template_filter("fecha")
