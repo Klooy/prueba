@@ -2,8 +2,8 @@
  *
  * El pedido vive en el navegador del cliente (localStorage): { "<id de producto>": cantidad }.
  * Precios y nombres salen siempre del menú de hoy (#menu-data), así que si un producto ya no
- * está en el menú se quita del pedido. "Pedir por WhatsApp" abre el chat de la tienda
- * (número configurado en Ajustes) con el pedido ya escrito.
+ * está en el menú se quita del pedido. "Pedir por WhatsApp" envía el pedido al servidor, que lo
+ * guarda en el historial del panel con un número y abre el chat de la tienda con el pedido escrito.
  */
 (function () {
   "use strict";
@@ -13,6 +13,7 @@
   if (!dataEl || !drawer) return;
 
   var CART_KEY = "anubis-pedido";
+  var TOKEN_KEY = "anubis-pedido-token"; // identifica este carrito: reenviarlo actualiza el mismo pedido
   var PROFILE_KEY = "anubis-cliente";    // { name, code }; "Mi código" también guarda aquí el código
   var MAX_QTY = 99;
 
@@ -20,13 +21,11 @@
   var byId = {};
   products.forEach(function (p) { byId[String(p.id)] = p; });
 
-  var store = drawer.getAttribute("data-store") || "la tienda";
-  var whatsapp = drawer.getAttribute("data-whatsapp") || "";
-
   var fab = document.getElementById("cart-open");
   var overlay = document.querySelector(".cart-overlay");
   var itemsEl = drawer.querySelector("[data-cart-items]");
-  var sendEl = drawer.querySelector("[data-cart-send]");
+  var formEl = drawer.querySelector("[data-cart-form]");
+  var sendBtn = drawer.querySelector("[data-cart-send]");
   var liveEl = drawer.querySelector("[data-cart-live]");
   var fields = {};
   Array.prototype.forEach.call(drawer.querySelectorAll("[data-cart-field]"), function (el) {
@@ -40,6 +39,9 @@
   function write(key, value) {
     try { window.localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* modo privado */ }
   }
+  function forget(key) {
+    try { window.localStorage.removeItem(key); } catch (e) { /* modo privado */ }
+  }
 
   var cart = {};
   var dropped = 0;
@@ -50,7 +52,24 @@
     if (byId[id]) cart[id] = Math.min(qty, MAX_QTY);
     else dropped += 1;
   });
-  if (dropped) write(CART_KEY, cart);
+  if (dropped) save();
+
+  // Un carrito vacío empieza un pedido nuevo la próxima vez.
+  function save() {
+    write(CART_KEY, cart);
+    if (!Object.keys(cart).length) forget(TOKEN_KEY);
+  }
+
+  function cartToken() {
+    var token = read(TOKEN_KEY);
+    if (typeof token !== "string" || !/^[0-9a-f]{32}$/.test(token)) {
+      var bytes = new Uint8Array(16);
+      window.crypto.getRandomValues(bytes);
+      token = Array.prototype.map.call(bytes, function (b) { return ("0" + b.toString(16)).slice(-2); }).join("");
+      write(TOKEN_KEY, token);
+    }
+    return token;
+  }
 
   var profile = read(PROFILE_KEY) || {};
   if (fields.name) fields.name.value = profile.name || "";
@@ -79,28 +98,6 @@
     return line.p.label || "Precio a confirmar";
   }
 
-  function message(s) {
-    var out = ["Hola, " + store + ". Quiero hacer este pedido:", ""];
-    s.lines.forEach(function (line) {
-      var price;
-      if (line.total !== null) price = cop(line.total);
-      else if (line.p.label) price = line.p.label + (line.qty > 1 ? " c/u" : "");
-      else price = "precio a confirmar";
-      out.push("• " + line.qty + " × " + line.p.title + " — " + price);
-    });
-    out.push("");
-    if (s.sum && s.pending) out.push("Total: " + cop(s.sum) + " COP + productos con precio a confirmar");
-    else if (s.sum) out.push("Total: " + cop(s.sum) + " COP");
-    else out.push("Total: por confirmar");
-    var name = fields.name ? fields.name.value.trim() : "";
-    var code = fields.code ? fields.code.value.trim().toUpperCase() : "";
-    var notes = fields.notes ? fields.notes.value.trim() : "";
-    if (name) out.push("Nombre: " + name);
-    if (code) out.push("Mi código de cliente: " + code + " (quiero usar mis descuentos)");
-    if (notes) out.push("Nota: " + notes);
-    return out.join("\n");
-  }
-
   // ------------------------------------------------------------ cambios
   function setQty(id, qty, announce) {
     id = String(id);
@@ -109,7 +106,7 @@
     qty = Math.max(0, Math.min(MAX_QTY, qty));
     var before = cart[id] || 0;
     if (qty) cart[id] = qty; else delete cart[id];
-    write(CART_KEY, cart);
+    save();
     render();
     if (announce && liveEl) {
       liveEl.textContent = qty > before
@@ -207,12 +204,7 @@
         ? "Un producto de tu pedido anterior ya no está en el menú de hoy y se quitó."
         : dropped + " productos de tu pedido anterior ya no están en el menú de hoy y se quitaron.";
     }
-
-    if (sendEl) {
-      sendEl.classList.toggle("is-disabled", empty);
-      sendEl.setAttribute("aria-disabled", empty ? "true" : "false");
-      sendEl.href = "https://wa.me/" + whatsapp + (empty ? "" : "?text=" + encodeURIComponent(message(s)));
-    }
+    if (sendBtn) sendBtn.disabled = empty;
   }
 
   // ------------------------------------------------------------ abrir / cerrar
@@ -241,7 +233,7 @@
   function focusables() {
     return Array.prototype.filter.call(
       drawer.querySelectorAll("a[href], button, input, textarea"),
-      function (node) { return !node.hidden && node.offsetParent !== null; }
+      function (node) { return !node.hidden && !node.disabled && node.type !== "hidden" && node.offsetParent !== null; }
     );
   }
 
@@ -277,18 +269,27 @@
     } else if (t.hasAttribute("data-cart-clear")) {
       if (window.confirm("¿Vaciar todo el pedido?")) {
         cart = {};
-        write(CART_KEY, cart);
+        save();
         render();
         var sent = drawer.querySelector("[data-cart-sent]");
         if (sent) sent.hidden = true;
         close();
       }
-    } else if (t.hasAttribute("data-cart-send")) {
-      if (!summary().count) { ev.preventDefault(); return; }
-      var hint = drawer.querySelector("[data-cart-sent]");
-      if (hint) hint.hidden = false;
     }
   });
+
+  // Al enviar: los productos van como "id:cantidad,…"; nombre, código y nota son campos del formulario.
+  if (formEl) {
+    formEl.addEventListener("submit", function (ev) {
+      var s = summary();
+      if (!s.count) { ev.preventDefault(); return; }
+      formEl.querySelector("[data-cart-order]").value =
+        s.lines.map(function (line) { return line.p.id + ":" + line.qty; }).join(",");
+      formEl.querySelector("[data-cart-token]").value = cartToken();
+      var hint = drawer.querySelector("[data-cart-sent]");
+      if (hint) hint.hidden = false;
+    });
+  }
 
   drawer.addEventListener("input", function (ev) {
     var key = ev.target.getAttribute("data-cart-field");
@@ -297,12 +298,18 @@
       profile[key] = key === "code" ? ev.target.value.trim().toUpperCase() : ev.target.value.trim();
       write(PROFILE_KEY, profile);
     }
-    render();
   });
 
   document.addEventListener("keydown", function (ev) {
     if (!isOpen()) return;
     if (ev.key === "Escape") { ev.preventDefault(); close(); return; }
+    if (ev.key === "Enter" && ev.target.matches("input[data-cart-field]")) {
+      ev.preventDefault();             // Enter no envía el pedido por accidente: pasa al siguiente campo
+      var order = focusables();
+      var next = order[order.indexOf(ev.target) + 1];
+      if (next) next.focus();
+      return;
+    }
     if (ev.key !== "Tab") return;
     var list = focusables();
     if (!list.length) return;

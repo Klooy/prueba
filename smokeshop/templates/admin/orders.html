@@ -1,0 +1,40 @@
+{% extends "admin/_layout.html" %}
+{% block section %}pedidos{% endblock %}
+{% block title %}Pedidos · {{ settings.store_name }}{% endblock %}
+{% block content %}
+<div class="page-head"><h1>Pedidos</h1></div>
+<p class="muted" style="font-size:.9rem">Cada pedido que un cliente envía por WhatsApp desde el menú queda aquí, con el mismo número que aparece en el chat.</p>
+
+<nav class="chips" aria-label="Filtrar por estado">
+  <a class="chip" href="{{ url_for('admin_orders', q=q or None) }}" {% if not status %}aria-current="true"{% endif %}>Todos</a>
+  {% for key, label in order_statuses.items() %}
+  <a class="chip" href="{{ url_for('admin_orders', estado=key, q=q or None) }}" {% if status == key %}aria-current="true"{% endif %}>{{ label }}s{% if counts.get(key) %} · {{ counts[key] }}{% endif %}</a>
+  {% endfor %}
+</nav>
+
+<form class="search" method="get">
+  {% if status %}<input type="hidden" name="estado" value="{{ status }}">{% endif %}
+  <input type="search" name="q" value="{{ q }}" placeholder="Número, nombre o código" aria-label="Buscar pedido">
+  <button class="btn small" type="submit" aria-label="Buscar"><svg class="icon"><use href="#i-search"/></svg></button>
+</form>
+
+<div class="card">
+  {% if orders %}
+  <ul class="list">
+    {% for o in orders %}{% include "admin/_order_row.html" %}{% endfor %}
+  </ul>
+  {% else %}
+  <div class="empty">
+    <svg class="icon" aria-hidden="true"><use href="#i-bag"/></svg>
+    <p>{% if q %}Sin resultados para “{{ q }}”.{% elif status %}No hay pedidos en este estado.{% else %}Aún no han llegado pedidos. Aparecen aquí cuando un cliente toca <strong>Pedir por WhatsApp</strong> en el menú.{% endif %}</p>
+  </div>
+  {% endif %}
+</div>
+
+{% if page > 1 or has_more %}
+<div class="btn-row mt" style="justify-content:center">
+  {% if page > 1 %}<a class="btn small ghost" href="{{ url_for('admin_orders', estado=status or None, q=q or None, pagina=page - 1) }}">Más recientes</a>{% endif %}
+  {% if has_more %}<a class="btn small ghost" href="{{ url_for('admin_orders', estado=status or None, q=q or None, pagina=page + 1) }}">Más antiguos</a>{% endif %}
+</div>
+{% endif %}
+{% endblock %}

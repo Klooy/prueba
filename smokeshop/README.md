@@ -5,7 +5,8 @@ Sistema privado para una smoke shop:
 - **Referidos**: registra clientes y cada uno recibe un código (`ANK-XXXXX`). Al registrar a alguien con el código de quien lo refirió, queda guardado quién trajo a quién.
 - **Descuentos en pesos (COP)**: el administrador decide el valor de cada descuento. Lo asigna con el código del cliente en la página **Descuentos**, al registrar un referido (valor para quien refirió y bienvenida para el nuevo, ambos opcionales) o desde la ficha del cliente. Cada descuento se canjea una sola vez, uno por uno o con **Canjear todo**; el cliente ve su saldo en pesos en "Mi código".
 - **Menú del día**: sube novedades (foto, precio, categoría, destacado) sin llevar inventario. Ocultar no borra; "Vaciar menú" deja todo listo para el día siguiente.
-- **Pedidos por WhatsApp**: el cliente agrega productos del menú a su pedido y, al tocar **Pedir por WhatsApp**, se abre el chat de la tienda con el pedido ya escrito (productos, cantidades, total en pesos y, si quiere, su nombre, su código de cliente y una nota). El número se define en **Ajustes → Pedidos por WhatsApp**; mientras no haya uno, el menú se muestra sin carrito. El pedido se guarda en el navegador del cliente, no en la base de datos: cada pedido llega solo al chat.
+- **Pedidos por WhatsApp**: el cliente agrega productos del menú a su pedido y, al tocar **Pedir por WhatsApp**, se abre el chat de la tienda con el pedido ya escrito (número de pedido, productos, cantidades, total en pesos y, si quiere, su nombre, su código de cliente y una nota). El número de la tienda se define en **Ajustes → Pedidos por WhatsApp**; mientras no haya uno, el menú se muestra sin carrito. El carrito vive en el navegador del cliente hasta que lo envía.
+- **Historial de pedidos**: cada pedido enviado queda en **Pedidos** con el mismo número que llega al chat (`#0001`). Los precios se toman del menú del día en el servidor, no del navegador. Si el cliente vuelve a enviar el mismo carrito, se actualiza ese pedido en vez de duplicarlo. Se filtra por estado (nuevo, confirmado, entregado, cancelado) y se busca por número, nombre o código. La ficha del pedido muestra los productos, la nota y, si el cliente escribió su código, sus descuentos pendientes. La barra del panel cuenta los pedidos nuevos y la ficha de cada cliente lista sus pedidos. Las horas van en hora de Colombia (UTC−5).
 - **Vista pública**: menú del día filtrable por categoría, consulta de "Mi código" y enlace de invitación para compartir por WhatsApp.
 - **Diseño**: mobile-first, estética de templo nocturno de lujo (oro, jade y humo violeta). El logo es una ilustración de Anubis con un amuleto de cannabis; `python tools/brand_assets.py imagen.jpg` genera a partir de ella la imagen de la portada, el logo del encabezado y los iconos.
 
@@ -33,7 +34,7 @@ Variables opcionales: `SECRET_KEY`, `DATABASE` (ruta del SQLite; por defecto `in
 2. En **Environment Variables** agrega `ADMIN_PASSWORD` (la contraseña del panel), `SECRET_KEY` (un texto largo y aleatorio) y `STORE_WHATSAPP` (el WhatsApp que recibe los pedidos, con indicativo: `573001234567`).
 3. **Deploy**.
 
-En Vercel la app arranca con productos y clientes de ejemplo (`DEMO_DATA=1` por defecto; pon `0` para desactivarlo). Todo lo que cambies se guarda en `/tmp` y **se pierde** cuando Vercel recicla la función, y cada instancia tiene su propia copia; por eso el WhatsApp conviene ponerlo en `STORE_WHATSAPP` y no solo en Ajustes. Para uso real hace falta Postgres + almacenamiento de archivos, o un hosting con disco persistente.
+En Vercel la app arranca con productos y clientes de ejemplo (`DEMO_DATA=1` por defecto; pon `0` para desactivarlo). Todo lo que cambies, incluidos los pedidos del historial, se guarda en `/tmp` y **se pierde** cuando Vercel recicla la función, y cada instancia tiene su propia copia; por eso el WhatsApp conviene ponerlo en `STORE_WHATSAPP` y no solo en Ajustes. Para uso real hace falta Postgres + almacenamiento de archivos, o un hosting con disco persistente.
 
 ## Rutas
 
@@ -42,9 +43,10 @@ En Vercel la app arranca con productos y clientes de ejemplo (`DEMO_DATA=1` por 
 | `/` | Público | Menú del día |
 | `/mi-codigo` | Clientes | Ver sus referidos y descuentos con su código |
 | `/r/<código>` | Invitados | Página de invitación |
-| `/admin` | Dueño | Panel: clientes, canjear, menú, ajustes |
+| `/pedido` (POST) | Clientes | Guarda el pedido del carrito y abre el WhatsApp de la tienda |
+| `/admin` | Dueño | Panel: pedidos, clientes, descuentos, menú, ajustes |
 
-El nombre de la tienda, la frase del menú, el prefijo de los códigos y el WhatsApp para pedidos se cambian en **Ajustes**.
+El nombre de la tienda, la frase del menú, el prefijo de los códigos y el WhatsApp para pedidos se cambian en **Ajustes** (el engranaje de arriba en el panel).
 
 ## Pruebas
 

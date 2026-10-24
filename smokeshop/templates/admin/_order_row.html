@@ -1,0 +1,12 @@
+{# Una fila del historial de pedidos (lista, inicio y ficha del cliente). Espera `o` de order_view(). #}
+<li>
+  <a class="rowlink main" href="{{ url_for('admin_order_detail', order_id=o.id) }}">
+    <strong>{{ o.id|pedido }} · {{ o.name or o.customer_name or 'Sin nombre' }}</strong>
+    <small class="clip">{{ o.summary }}</small>
+    <small>{{ o.created_at|fecha_hora }}</small>
+  </a>
+  <span class="order-side">
+    <span class="badge st-{{ o.status }}">{{ order_statuses[o.status] }}</span>
+    <b class="order-total">{{ (o.total|cop) if o.total else 'Por confirmar' }}{% if o.total and o.pending %} +{% endif %}</b>
+  </span>
+</li>

@@ -2,16 +2,20 @@
 
 Aplicación Flask + SQLite. Una sola persona administra (el dueño de la tienda):
 registra clientes, controla quién refirió a quién, entrega y canjea
-descuentos, y publica las novedades del día. Los clientes solo ven el menú
-del día y pueden consultar su código de referido.
+descuentos, y publica las novedades del día. Los clientes ven el menú del día,
+consultan su código de referido y envían su pedido por WhatsApp; cada pedido
+queda en el historial del panel.
 """
 import hashlib
+import json
 import os
 import secrets
 import sqlite3
+import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from functools import wraps
+from urllib.parse import quote
 
 from flask import (
     Flask, abort, flash, g, redirect, render_template, request, send_from_directory, session,
@@ -70,8 +74,24 @@ CREATE TABLE IF NOT EXISTS products (
     active      INTEGER NOT NULL DEFAULT 1,
     created_at  TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS orders (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    token       TEXT NOT NULL,               -- id aleatorio del carrito: reenviarlo no duplica el pedido
+    status      TEXT NOT NULL DEFAULT 'nuevo',  -- nuevo | confirmado | entregado | cancelado
+    items       TEXT NOT NULL,               -- JSON: [{product_id, title, qty, price, label}]
+    total       INTEGER NOT NULL DEFAULT 0,  -- suma de los productos con precio, en pesos
+    pending     INTEGER NOT NULL DEFAULT 0,  -- 1 si hay productos con precio a confirmar
+    name        TEXT NOT NULL DEFAULT '',
+    code        TEXT NOT NULL DEFAULT '',    -- código de cliente tal como lo escribió
+    customer_id INTEGER REFERENCES customers(id) ON DELETE SET NULL,
+    note        TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL                -- última vez que el cliente lo envió
+);
 CREATE INDEX IF NOT EXISTS idx_customers_referred_by ON customers(referred_by);
 CREATE INDEX IF NOT EXISTS idx_rewards_customer ON rewards(customer_id);
+CREATE INDEX IF NOT EXISTS idx_orders_token ON orders(token);
+CREATE INDEX IF NOT EXISTS idx_orders_customer ON orders(customer_id);
 """
 
 REWARD_LABELS = {
@@ -82,6 +102,21 @@ REWARD_LABELS = {
 }
 
 MAX_DISCOUNT = 10_000_000  # tope de seguridad contra ceros de más al escribir el valor
+
+ORDER_STATUSES = {         # en este orden salen los filtros del historial
+    "nuevo": "Nuevo",
+    "confirmado": "Confirmado",
+    "entregado": "Entregado",
+    "cancelado": "Cancelado",
+}
+MAX_ORDER_LINES = 40       # productos distintos por pedido
+MAX_ORDER_QTY = 99         # unidades de un producto (igual que el carrito)
+ORDER_LIMIT = (10, 600)    # pedidos nuevos por dirección IP en 10 minutos
+ORDERS_PER_PAGE = 30
+
+MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
+# Hora de la tienda: Colombia, UTC-5 todo el año. Los servidores (Vercel incluido) van en UTC.
+STORE_TZ = timezone(timedelta(hours=-5))
 
 
 def create_app(test_config=None):
@@ -218,8 +253,12 @@ def set_setting(key, value):
     g.pop("settings", None)
 
 
+def local_now():
+    return datetime.now(STORE_TZ).replace(tzinfo=None)
+
+
 def now():
-    return datetime.now().isoformat(timespec="seconds")
+    return local_now().isoformat(timespec="seconds")
 
 
 # ---------------------------------------------------------------------- helpers
@@ -357,6 +396,103 @@ def customer_stats(customer_id):
     return {"referrals": referrals, "pending": pending, "total": sum(r["amount"] for r in pending)}
 
 
+# ---------------------------------------------------------------------- pedidos
+
+def order_number(order_id):
+    return f"#{order_id:04d}"
+
+
+def parse_order_items(raw):
+    """'3:2,5:1' (producto:cantidad, lo arma el carrito) -> {3: 2, 5: 1}. Ignora lo que no encaje."""
+    wanted = {}
+    for part in (raw or "").split(",")[:MAX_ORDER_LINES]:
+        product_id, _, qty = part.strip().partition(":")
+        if product_id.isdecimal() and len(product_id) < 10 and qty.isdecimal() and len(qty) < 4 and int(qty):
+            wanted[int(product_id)] = min(int(qty), MAX_ORDER_QTY)
+    return wanted
+
+
+def order_lines(wanted):
+    """Líneas del pedido con nombre y precio del menú de hoy: del navegador solo se toman ids y cantidades."""
+    if not wanted:
+        return []
+    rows = get_db().execute(
+        f"SELECT id, title, price FROM products WHERE active = 1 AND id IN ({','.join('?' * len(wanted))}) "
+        "ORDER BY featured DESC, created_at DESC, id DESC",
+        tuple(wanted),
+    ).fetchall()
+    lines = []
+    for p in rows:
+        price = int(p["price"]) if p["price"].isdecimal() else None
+        lines.append({"product_id": p["id"], "title": p["title"], "qty": wanted[p["id"]],
+                      "price": price, "label": "" if price is not None else p["price"]})
+    return lines
+
+
+def order_totals(lines):
+    """(suma en pesos de los productos con precio, si hay alguno con precio a confirmar)."""
+    total = sum(line["price"] * line["qty"] for line in lines if line["price"] is not None)
+    return total, any(line["price"] is None for line in lines)
+
+
+def order_message(order_id, lines, name="", code="", note=""):
+    """Texto del pedido que llega al WhatsApp de la tienda."""
+    out = [f"Hola, {get_settings()['store_name']}. Quiero hacer el pedido {order_number(order_id)}:", ""]
+    for line in lines:
+        if line["price"] is not None:
+            price = format_cop(line["price"] * line["qty"])
+        elif line["label"]:
+            price = line["label"] + (" c/u" if line["qty"] > 1 else "")
+        else:
+            price = "precio a confirmar"
+        out.append(f"• {line['qty']} × {line['title']} — {price}")
+    total, pending = order_totals(lines)
+    out.append("")
+    if total and pending:
+        out.append(f"Total: {format_cop(total)} COP + productos con precio a confirmar")
+    elif total:
+        out.append(f"Total: {format_cop(total)} COP")
+    else:
+        out.append("Total: por confirmar")
+    if name:
+        out.append(f"Nombre: {name}")
+    if code:
+        out.append(f"Mi código de cliente: {code} (quiero usar mis descuentos)")
+    if note:
+        out.append(f"Nota: {note}")
+    return "\n".join(out)
+
+
+def order_view(row):
+    """Fila de `orders` lista para las plantillas: con sus líneas y un resumen corto."""
+    order = dict(row)
+    order["lines"] = json.loads(order["items"])
+    order["summary"] = ", ".join(f"{line['qty']} × {line['title']}" for line in order["lines"])
+    return order
+
+
+def too_many_orders():
+    """Freno básico contra pedidos falsos en masa: como mucho ORDER_LIMIT pedidos nuevos por IP.
+
+    La cuenta vive en memoria (cada proceso lleva la suya): no es infalible, pero evita que un
+    script llene el historial.
+    """
+    from flask import current_app
+    limit, window = ORDER_LIMIT
+    log = current_app.extensions.setdefault("order_log", {})
+    ip = request.access_route[0] if request.access_route else ""
+    moment = time.time()
+    if len(log) > 1000:                       # olvida direcciones sin pedidos recientes
+        for key in [k for k, times in log.items() if not times or moment - times[-1] >= window]:
+            del log[key]
+    recent = [t for t in log.get(ip, ()) if moment - t < window]
+    blocked = len(recent) >= limit
+    if not blocked:
+        recent.append(moment)
+    log[ip] = recent
+    return blocked
+
+
 def allowed_image(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_IMAGES
 
@@ -422,12 +558,17 @@ def register_hooks(app):
 
     @app.context_processor
     def inject_globals():
+        admin = is_admin()
         return {
             "asset_v": asset_version(),
             "settings": get_settings(),
             "csrf_token": session.get("csrf", ""),
-            "is_admin": is_admin(),
+            "is_admin": admin,
             "reward_labels": REWARD_LABELS,
+            "order_statuses": ORDER_STATUSES,
+            # contador de la barra del panel
+            "new_orders": get_db().execute(
+                "SELECT COUNT(*) FROM orders WHERE status = 'nuevo'").fetchone()[0] if admin else 0,
         }
 
     @app.template_filter("fecha")
@@ -438,13 +579,25 @@ def register_hooks(app):
             dt = datetime.fromisoformat(value)
         except ValueError:
             return value
-        meses = ["ene", "feb", "mar", "abr", "may", "jun",
-                 "jul", "ago", "sep", "oct", "nov", "dic"]
-        return f"{dt.day} {meses[dt.month - 1]} {dt.year}"
+        return f"{dt.day} {MESES[dt.month - 1]} {dt.year}"
+
+    @app.template_filter("fecha_hora")
+    def fecha_hora(value):
+        """'2026-10-24T15:42:00' -> 'Hoy, 3:42 p. m.', 'Ayer, …' o '22 oct 2026, …'."""
+        try:
+            dt = datetime.fromisoformat(value)
+        except (TypeError, ValueError):
+            return value or ""
+        hour = f"{dt.hour % 12 or 12}:{dt.minute:02d} {'a. m.' if dt.hour < 12 else 'p. m.'}"
+        days = (local_now().date() - dt.date()).days
+        day = {0: "Hoy", 1: "Ayer"}.get(days) or fecha(value)
+        return f"{day}, {hour}"
 
     app.template_filter("cop")(format_cop)
     app.template_filter("reward_value")(reward_value)
     app.template_filter("phone")(phone_display)
+    app.template_filter("wa")(normalize_whatsapp)
+    app.template_filter("pedido")(order_number)
 
     @app.template_filter("first_name")
     def first_name(value):
@@ -462,7 +615,7 @@ def register_public_routes(app):
     @app.route("/")
     def menu():
         products = get_db().execute(
-            "SELECT * FROM products WHERE active = 1 ORDER BY featured DESC, created_at DESC"
+            "SELECT * FROM products WHERE active = 1 ORDER BY featured DESC, created_at DESC, id DESC"
         ).fetchall()
         categories = []
         for p in products:
@@ -480,7 +633,7 @@ def register_public_routes(app):
         ]
         return render_template(
             "public/menu.html", products=products, categories=categories, menu_items=menu_items,
-            today=datetime.now(),
+            today=local_now(),
         )
 
     @app.route("/uploads/<path:name>")
@@ -506,6 +659,55 @@ def register_public_routes(app):
         if not referrer:
             abort(404)
         return render_template("public/invite.html", referrer=referrer)
+
+    @app.route("/pedido", methods=["POST"])
+    def place_order():
+        """Guarda el pedido del carrito y abre el WhatsApp de la tienda con el pedido escrito.
+
+        Mientras el pedido siga "nuevo", el mismo carrito (mismo `token`) lo actualiza: volver
+        a tocar el botón no lo duplica en el historial.
+        """
+        whatsapp = get_settings()["whatsapp"]
+        if not whatsapp:
+            flash("La tienda todavía no recibe pedidos por WhatsApp.", "error")
+            return redirect(url_for("menu"))
+        lines = order_lines(parse_order_items(request.form.get("items")))
+        if not lines:
+            flash("Tu pedido está vacío o sus productos ya no están en el menú de hoy.", "error")
+            return redirect(url_for("menu"))
+        token = request.form.get("token") or ""
+        if not (16 <= len(token) <= 64 and token.isalnum() and token.isascii()):
+            token = secrets.token_hex(16)
+        name = (request.form.get("name") or "").strip()[:60]
+        code = normalize_code(request.form.get("code"))[:16]
+        note = (request.form.get("note") or "").strip()[:300]
+        customer = find_customer_by_code(code)
+        total, pending = order_totals(lines)
+        values = (json.dumps(lines, ensure_ascii=False), total, int(pending), name, code,
+                  customer["id"] if customer else None, note, now())
+        db = get_db()
+        order = db.execute(
+            "SELECT id FROM orders WHERE token = ? AND status = 'nuevo' ORDER BY id DESC LIMIT 1", (token,)
+        ).fetchone()
+        if order:
+            order_id = order["id"]
+            db.execute(
+                "UPDATE orders SET items = ?, total = ?, pending = ?, name = ?, code = ?, customer_id = ?, "
+                "note = ?, updated_at = ? WHERE id = ?",
+                (*values, order_id),
+            )
+        elif too_many_orders():
+            flash("Recibimos muchos pedidos seguidos desde tu conexión. Espera unos minutos.", "error")
+            return redirect(url_for("menu"))
+        else:
+            order_id = db.execute(
+                "INSERT INTO orders (items, total, pending, name, code, customer_id, note, updated_at, "
+                "token, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (*values, token, values[-1]),
+            ).lastrowid
+        db.commit()
+        text = order_message(order_id, lines, name, code, note)
+        return redirect(f"https://wa.me/{whatsapp}?text={quote(text, safe='')}", code=303)
 
 
 # ------------------------------------------------------------------------ admin
@@ -548,7 +750,7 @@ def register_admin_routes(app):
     @admin_required
     def admin_dashboard():
         db = get_db()
-        month = datetime.now().strftime("%Y-%m")
+        month = local_now().strftime("%Y-%m")
         stats = {
             "customers": db.execute("SELECT COUNT(*) FROM customers").fetchone()[0],
             "referred": db.execute(
@@ -573,7 +775,80 @@ def register_admin_routes(app):
             "LEFT JOIN customers p ON p.id = c.referred_by "
             "ORDER BY c.created_at DESC, c.id DESC LIMIT 6"
         ).fetchall()
-        return render_template("admin/dashboard.html", stats=stats, top=top, recent=recent)
+        orders = db.execute(
+            "SELECT o.*, c.name AS customer_name FROM orders o LEFT JOIN customers c ON c.id = o.customer_id "
+            "WHERE o.status = 'nuevo' ORDER BY o.id DESC LIMIT 5"
+        ).fetchall()
+        return render_template("admin/dashboard.html", stats=stats, top=top, recent=recent,
+                               orders=[order_view(o) for o in orders])
+
+    # ---- pedidos
+
+    @app.route("/admin/pedidos")
+    @admin_required
+    def admin_orders():
+        status = request.args.get("estado", "")
+        if status not in ORDER_STATUSES:
+            status = ""
+        q = (request.args.get("q") or "").strip()
+        page = min(max(request.args.get("pagina", 1, type=int), 1), 10_000)
+        sql = "SELECT o.*, c.name AS customer_name FROM orders o LEFT JOIN customers c ON c.id = o.customer_id"
+        where, params = [], []
+        if status:
+            where.append("o.status = ?")
+            params.append(status)
+        if q:
+            number = q.lstrip("#")
+            like = f"%{q}%"
+            where.append("(o.id = ? OR o.name LIKE ? OR o.code LIKE ? OR c.name LIKE ?)")
+            params += [int(number) if number.isdecimal() and len(number) < 10 else 0, like, like.upper(), like]
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        sql += " ORDER BY o.id DESC LIMIT ? OFFSET ?"
+        db = get_db()
+        rows = db.execute(sql, (*params, ORDERS_PER_PAGE + 1, (page - 1) * ORDERS_PER_PAGE)).fetchall()
+        counts = dict(db.execute("SELECT status, COUNT(*) FROM orders GROUP BY status").fetchall())
+        return render_template(
+            "admin/orders.html", orders=[order_view(r) for r in rows[:ORDERS_PER_PAGE]],
+            has_more=len(rows) > ORDERS_PER_PAGE, page=page, status=status, q=q, counts=counts,
+        )
+
+    @app.route("/admin/pedidos/<int:order_id>")
+    @admin_required
+    def admin_order_detail(order_id):
+        row = get_db().execute(
+            "SELECT o.*, c.name AS customer_name, c.code AS customer_code, c.phone AS customer_phone "
+            "FROM orders o LEFT JOIN customers c ON c.id = o.customer_id WHERE o.id = ?",
+            (order_id,),
+        ).fetchone()
+        if not row:
+            abort(404)
+        order = order_view(row)
+        balance = customer_stats(order["customer_id"])["total"] if order["customer_id"] else 0
+        return render_template("admin/order_detail.html", order=order, balance=balance)
+
+    @app.route("/admin/pedidos/<int:order_id>/estado", methods=["POST"])
+    @admin_required
+    def admin_order_status(order_id):
+        status = request.form.get("status", "")
+        if status not in ORDER_STATUSES:
+            abort(400)
+        db = get_db()
+        if not db.execute("SELECT 1 FROM orders WHERE id = ?", (order_id,)).fetchone():
+            abort(404)
+        db.execute("UPDATE orders SET status = ? WHERE id = ?", (status, order_id))
+        db.commit()
+        flash(f"Pedido {order_number(order_id)} marcado como {ORDER_STATUSES[status].lower()}.", "ok")
+        return redirect(url_for("admin_order_detail", order_id=order_id))
+
+    @app.route("/admin/pedidos/<int:order_id>/borrar", methods=["POST"])
+    @admin_required
+    def admin_order_delete(order_id):
+        db = get_db()
+        db.execute("DELETE FROM orders WHERE id = ?", (order_id,))
+        db.commit()
+        flash(f"Pedido {order_number(order_id)} eliminado.", "ok")
+        return redirect(url_for("admin_orders"))
 
     # ---- clientes
 
@@ -658,10 +933,14 @@ def register_admin_routes(app):
             "ORDER BY w.redeemed_at IS NOT NULL, w.created_at DESC",
             (customer_id,),
         ).fetchall()
+        orders = db.execute(
+            "SELECT o.*, ? AS customer_name FROM orders o WHERE o.customer_id = ? ORDER BY o.id DESC LIMIT 10",
+            (customer["name"], customer_id),
+        ).fetchall()
         invite_url = url_for("referral_landing", code=customer["code"], _external=True)
         return render_template(
             "admin/customer_detail.html", customer=customer, referrals=referrals,
-            rewards=rewards, invite_url=invite_url,
+            rewards=rewards, invite_url=invite_url, orders=[order_view(o) for o in orders],
         )
 
     @app.route("/admin/clientes/<int:customer_id>/editar", methods=["POST"])
