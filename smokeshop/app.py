@@ -40,6 +40,7 @@ DEFAULT_SETTINGS = {
     "whatsapp": "",              # WhatsApp de la tienda para pedidos: dígitos con indicativo (57...)
     "referral_value": "0",       # pesos que gana un cliente por cada persona que se registra con su enlace
     "self_signup": "1",          # los clientes pueden registrarse solos desde la web
+    "payment_methods": "Efectivo, Nequi, Daviplata, Transferencia",   # el cliente elige uno al pedir
 }
 
 SCHEMA = """
@@ -90,6 +91,10 @@ CREATE TABLE IF NOT EXISTS orders (
     code        TEXT NOT NULL DEFAULT '',    -- código de cliente tal como lo escribió
     customer_id INTEGER REFERENCES customers(id) ON DELETE SET NULL,
     note        TEXT NOT NULL DEFAULT '',
+    payment     TEXT NOT NULL DEFAULT '',    -- método de pago que eligió
+    address     TEXT NOT NULL DEFAULT '',    -- dirección y referencias para el domicilio
+    location    TEXT NOT NULL DEFAULT '',    -- "lat,lng" del GPS del cliente
+    photo       TEXT,                        -- foto de la calle o la fachada (opcional)
     created_at  TEXT NOT NULL,
     updated_at  TEXT NOT NULL                -- última vez que el cliente lo envió
 );
@@ -321,6 +326,9 @@ def init_db():
     # Columnas que llegaron después: las bases creadas antes no las tienen.
     ensure_column(db, "rewards", "amount", "BIGINT NOT NULL DEFAULT 0")      # descuentos en pesos
     ensure_column(db, "customers", "origin", "TEXT NOT NULL DEFAULT 'tienda'")
+    for column, definition in (("payment", "TEXT NOT NULL DEFAULT ''"), ("address", "TEXT NOT NULL DEFAULT ''"),
+                               ("location", "TEXT NOT NULL DEFAULT ''"), ("photo", "TEXT")):
+        ensure_column(db, "orders", column, definition)                    # datos de entrega
     for key, value in DEFAULT_SETTINGS.items():
         db.execute("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO NOTHING", (key, value))
     # STORE_WHATSAPP llena el número si el administrador aún no lo ha configurado.
@@ -567,7 +575,30 @@ def order_totals(lines):
     return total, any(line["price"] is None for line in lines)
 
 
-def order_message(order_id, lines, name="", code="", note=""):
+def payment_methods():
+    """Métodos de pago que acepta la tienda (Ajustes), en orden."""
+    raw = get_settings().get("payment_methods") or DEFAULT_SETTINGS["payment_methods"]
+    return [m.strip() for m in raw.split(",") if m.strip()]
+
+
+def parse_location(lat, lng):
+    """Coordenadas del GPS del navegador -> "4.609700,-74.081700", o "" si no son válidas."""
+    try:
+        lat, lng = float(lat), float(lng)
+    except (TypeError, ValueError):
+        return ""
+    if not (-90 <= lat <= 90 and -180 <= lng <= 180) or (lat == 0 and lng == 0):
+        return ""
+    return f"{lat:.6f},{lng:.6f}"
+
+
+def maps_url(location):
+    """Enlace de Google Maps que el domiciliario abre para llegar."""
+    return f"https://www.google.com/maps/search/?api=1&query={location}"
+
+
+def order_message(order_id, lines, name="", code="", note="", payment="", location="", accuracy=0,
+                  address="", photo_url=""):
     """Texto del pedido que llega al WhatsApp de la tienda."""
     out = [f"Hola, {get_settings()['store_name']}. Quiero hacer el pedido {order_number(order_id)}:", ""]
     for line in lines:
@@ -586,6 +617,14 @@ def order_message(order_id, lines, name="", code="", note=""):
         out.append(f"Total: {format_cop(total)} COP")
     else:
         out.append("Total: por confirmar")
+    if payment:
+        out.append(f"Pago: {payment}")
+    if location:
+        out.append(f"Ubicación: {maps_url(location)}" + (f" (aprox. ±{accuracy} m)" if accuracy > 60 else ""))
+    if address:
+        out.append(f"Dirección: {address}")
+    if photo_url:
+        out.append(f"Foto de la entrada: {photo_url}")
     if name:
         out.append(f"Nombre: {name}")
     if code:
@@ -662,14 +701,14 @@ def storage_error(exc):
     return str(exc)
 
 
-def save_image(file_storage):
+def save_image(file_storage, prefix=""):
     from flask import current_app
     if not file_storage or not file_storage.filename:
         return None
     if not allowed_image(file_storage.filename):
         raise ValueError("Formato de imagen no permitido (usa png, jpg, webp o gif).")
     ext = file_storage.filename.rsplit(".", 1)[1].lower()
-    name = f"{uuid.uuid4().hex}.{ext}"
+    name = f"{prefix}{uuid.uuid4().hex}.{ext}"
     if storage_target():
         try:
             storage_request("POST", name, file_storage.read(), IMAGE_TYPES[ext])
@@ -725,20 +764,20 @@ def storage_status():
     return {"db": db, "photos": photos, "temporary": not (db[2] and photos[2])}
 
 
-def image_url(name):
-    """Dirección pública de una foto del menú."""
+def image_url(name, external=False):
+    """Dirección pública de una foto (del menú o de un pedido)."""
     target = storage_target()
     if target:
         url, _key, bucket = target
         return f"{url}/storage/v1/object/public/{bucket}/{quote(name)}"
-    return url_for("uploaded", name=name)
+    return url_for("uploaded", name=name, _external=external)
 
 
 def asset_version():
-    """Huella corta de los estilos y el script del carrito: cambia cuando cambian, para invalidar la caché."""
+    """Huella corta de los estilos y los scripts: cambia cuando cambian, para invalidar la caché."""
     if "asset_v" not in ASSET_CACHE:
         digest = hashlib.md5()
-        for name in ("css/anubis.css", "css/fonts.css", "js/cart.js"):
+        for name in ("css/anubis.css", "css/fonts.css", "js/cart.js", "js/photo.js"):
             with open(os.path.join(BASE_DIR, "static", name), "rb") as fh:
                 digest.update(fh.read())
         ASSET_CACHE["asset_v"] = digest.hexdigest()[:10]
@@ -819,6 +858,7 @@ def register_hooks(app):
     app.template_filter("wa")(normalize_whatsapp)
     app.template_filter("pedido")(order_number)
     app.jinja_env.globals["image_url"] = image_url
+    app.jinja_env.globals["maps_url"] = maps_url
 
     @app.template_filter("first_name")
     def first_name(value):
@@ -854,7 +894,7 @@ def register_public_routes(app):
         ]
         return render_template(
             "public/menu.html", products=products, categories=categories, menu_items=menu_items,
-            today=local_now(),
+            payment_methods=payment_methods(), today=local_now(),
         )
 
     @app.route("/uploads/<path:name>")
@@ -942,35 +982,56 @@ def register_public_routes(app):
         token = request.form.get("token") or ""
         if not (16 <= len(token) <= 64 and token.isalnum() and token.isascii()):
             token = secrets.token_hex(16)
+        # Datos mínimos para el domicilio: cómo paga y dónde entregar (GPS o dirección).
+        payment = (request.form.get("payment") or "").strip()
+        location = parse_location(request.form.get("lat"), request.form.get("lng"))
+        address = (request.form.get("address") or "").strip()[:200]
+        if payment not in payment_methods():
+            flash("Elige cómo vas a pagar tu pedido.", "error")
+            return redirect(url_for("menu"))
+        if not location and len(address) < 6:
+            flash("Comparte tu ubicación o escribe tu dirección para el domicilio.", "error")
+            return redirect(url_for("menu"))
+        accuracy = request.form.get("accuracy", "")
+        accuracy = int(float(accuracy)) if location and accuracy.replace(".", "", 1).isdecimal() and len(accuracy) < 10 else 0
         name = (request.form.get("name") or "").strip()[:60]
         code = normalize_code(request.form.get("code"))[:16]
         note = (request.form.get("note") or "").strip()[:300]
         customer = find_customer_by_code(code)
         total, pending = order_totals(lines)
-        values = (json.dumps(lines, ensure_ascii=False), total, int(pending), name, code,
-                  customer["id"] if customer else None, note, now())
         db = get_db()
         order = db.execute(
-            "SELECT id FROM orders WHERE token = ? AND status = 'nuevo' ORDER BY id DESC LIMIT 1", (token,)
+            "SELECT id, photo FROM orders WHERE token = ? AND status = 'nuevo' ORDER BY id DESC LIMIT 1", (token,)
         ).fetchone()
+        if not order and rate_limited("pedido", ORDER_LIMIT):
+            flash("Recibimos muchos pedidos seguidos desde tu conexión. Espera unos minutos.", "error")
+            return redirect(url_for("menu"))
+        try:
+            photo = save_image(request.files.get("photo"), prefix="pedido-")
+        except ValueError as exc:
+            flash(f"La foto de la entrada no se pudo guardar: {exc}", "error")
+            return redirect(url_for("menu"))
+        if order and photo and order["photo"]:
+            delete_image(order["photo"])                     # la reemplaza la nueva
+        photo = photo or (order["photo"] if order else None)
+        values = (json.dumps(lines, ensure_ascii=False), total, int(pending), name, code,
+                  customer["id"] if customer else None, note, payment, address, location, photo, now())
         if order:
             order_id = order["id"]
             db.execute(
                 "UPDATE orders SET items = ?, total = ?, pending = ?, name = ?, code = ?, customer_id = ?, "
-                "note = ?, updated_at = ? WHERE id = ?",
+                "note = ?, payment = ?, address = ?, location = ?, photo = ?, updated_at = ? WHERE id = ?",
                 (*values, order_id),
             )
-        elif rate_limited("pedido", ORDER_LIMIT):
-            flash("Recibimos muchos pedidos seguidos desde tu conexión. Espera unos minutos.", "error")
-            return redirect(url_for("menu"))
         else:
             order_id = db.insert(
-                "INSERT INTO orders (items, total, pending, name, code, customer_id, note, updated_at, "
-                "token, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO orders (items, total, pending, name, code, customer_id, note, payment, address, "
+                "location, photo, updated_at, token, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (*values, token, values[-1]),
             )
         db.commit()
-        text = order_message(order_id, lines, name, code, note)
+        text = order_message(order_id, lines, name, code, note, payment, location, accuracy, address,
+                             image_url(photo, external=True) if photo else "")
         return redirect(f"https://wa.me/{whatsapp}?text={quote(text, safe='')}", code=303)
 
 
@@ -1109,6 +1170,9 @@ def register_admin_routes(app):
     @admin_required
     def admin_order_delete(order_id):
         db = get_db()
+        row = db.execute("SELECT photo FROM orders WHERE id = ?", (order_id,)).fetchone()
+        if row and row["photo"]:
+            delete_image(row["photo"])
         db.execute("DELETE FROM orders WHERE id = ?", (order_id,))
         db.commit()
         flash(f"Pedido {order_number(order_id)} eliminado.", "ok")
@@ -1427,7 +1491,8 @@ def register_admin_routes(app):
     def admin_settings():
         if request.method == "POST":
             form = {k: (request.form.get(k) or "").strip()
-                    for k in ("store_name", "tagline", "code_prefix", "whatsapp", "referral_value")}
+                    for k in ("store_name", "tagline", "code_prefix", "whatsapp", "referral_value",
+                              "payment_methods")}
             form["self_signup"] = "1" if request.form.get("self_signup") else "0"
             whatsapp = normalize_whatsapp(form["whatsapp"])
             referral = parse_cop(form["referral_value"])
@@ -1449,12 +1514,15 @@ def register_admin_routes(app):
             set_setting("whatsapp", whatsapp)
             set_setting("referral_value", str(referral))
             set_setting("self_signup", form["self_signup"])
+            methods = [m.strip()[:30] for m in form["payment_methods"].split(",") if m.strip()][:10]
+            set_setting("payment_methods", ", ".join(methods) or DEFAULT_SETTINGS["payment_methods"])
             if new_pw:
                 set_setting("admin_password", generate_password_hash(new_pw))
             get_db().commit()
             flash("Ajustes guardados.", "ok")
             return redirect(url_for("admin_settings"))
-        return render_template("admin/settings.html", wa_saved=get_settings()["whatsapp"])
+        return render_template("admin/settings.html", wa_saved=get_settings()["whatsapp"],
+                               wa_env=normalize_whatsapp(env("STORE_WHATSAPP")))
 
 
 app = create_app()

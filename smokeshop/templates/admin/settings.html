@@ -27,7 +27,7 @@
     {% if wa_saved %}
     <div class="flash ok">
       <svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>
-      <span>Los pedidos llegan a <strong class="tel">{{ wa_saved|phone }}</strong> · <a href="https://wa.me/{{ wa_saved }}" target="_blank" rel="noopener">Probar enlace</a></span>
+      <span>Los pedidos llegan a <strong class="tel">{{ wa_saved|phone }}</strong>{% if wa_env and wa_env == wa_saved %} (tomado de la variable STORE_WHATSAPP de Vercel; si no es tu número, escribe el correcto arriba y guarda){% endif %} · <a href="https://wa.me/{{ wa_saved }}" target="_blank" rel="noopener">Probar enlace</a></span>
     </div>
     {% else %}
     <div class="flash error">
@@ -35,6 +35,12 @@
       <span>Sin número todavía: el menú se muestra sin carrito de pedidos.</span>
     </div>
     {% endif %}
+    <div class="field mt">
+      <label for="payment_methods">Métodos de pago</label>
+      <input id="payment_methods" name="payment_methods" type="text" value="{{ settings.payment_methods }}"
+             placeholder="Efectivo, Nequi, Daviplata, Transferencia" aria-describedby="payment-hint">
+      <small class="hint" id="payment-hint">Sepáralos con comas. Al pedir, el cliente elige uno, comparte su ubicación o escribe su dirección y, si quiere, agrega una foto de la entrada.</small>
+    </div>
   </section>
 
   <section class="card" id="referidos">

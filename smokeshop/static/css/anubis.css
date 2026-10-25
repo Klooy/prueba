@@ -1135,6 +1135,34 @@ html.cart-lock, html.cart-lock body { overflow: hidden; }
 .cart-empty { margin: 0; padding: 30px 6px 10px; text-align: center; color: var(--dim); }
 .cart-fields { margin-top: 18px; padding-top: 16px; border-top: 1px dashed var(--line-jade); }
 .cart-fields .field:last-child { margin-bottom: 0; }
+.cart-group { border: 0; margin: 20px 0 0; padding: 0; min-width: 0; }
+.cart-group:first-child { margin-top: 0; }
+.cart-group legend { padding: 0; }
+.cart-group > .field { margin: 12px 0 0; }
+.pay-options { display: flex; flex-wrap: wrap; gap: 8px; }
+.pay-option { position: relative; display: inline-flex; margin: 0; cursor: pointer; }
+.pay-option input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.pay-option span {
+  padding: 10px 16px;
+  border-radius: 999px; border: 1px solid var(--line-2);
+  background: rgba(12, 19, 13, .8); color: var(--papyrus);
+  font: 600 .8rem var(--f-body);
+  transition: background .2s, border-color .2s;
+}
+.pay-option input:checked + span {
+  background: var(--jade-foil); background-size: 200% 100%;
+  color: #03160a; border-color: transparent;
+  box-shadow: 0 0 18px rgba(52, 210, 122, .35);
+}
+.pay-option input:focus-visible + span { outline: 2px solid var(--jade-hi); outline-offset: 2px; }
+.cart-error { margin: 8px 0 0; font-size: .8rem; font-weight: 600; color: var(--carnelian); }
+.cart-geo { margin: 8px 0 0; font-size: .82rem; color: var(--jade-hi); }
+.cart-geo.is-error { color: var(--carnelian); }
+.photo-pick { margin: 0; cursor: pointer; }
+.photo-pick:focus-within { outline: 2px solid var(--jade-hi); outline-offset: 3px; }
+.photo-preview { display: flex; align-items: center; gap: 14px; margin-top: 10px; }
+.photo-preview img { width: 88px; height: 88px; object-fit: cover; border-radius: 14px; border: 1px solid var(--line-2); }
+.order-photo { display: block; width: 100%; max-height: 280px; object-fit: cover; margin-top: 12px; border-radius: 14px; border: 1px solid var(--line-2); }
 .cart-fields input.code-input { font-size: 1.05rem; }
 .cart-fields textarea { min-height: 76px; }
 .cart-foot {

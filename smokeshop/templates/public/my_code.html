@@ -55,8 +55,9 @@
     {% set share_text = ('Te invito a ' ~ settings.store_name ~ '. Regístrate con mi enlace: ' ~ invite_url) if self_signup
                         else ('Te invito a ' ~ settings.store_name ~ '. Usa mi código ' ~ customer.code ~ ' en tu primera visita: ' ~ invite_url) %}
     <a class="btn block mt" target="_blank" rel="noopener" href="https://wa.me/?text={{ share_text|urlencode }}">
-      <svg class="icon" aria-hidden="true"><use href="#i-share"/></svg>Compartir por WhatsApp
+      <svg class="icon" aria-hidden="true"><use href="#i-share"/></svg>Invitar amigos por WhatsApp
     </a>
+    <p class="muted center" style="font-size:.8rem;margin:8px 0 0">WhatsApp te deja elegir a quién enviarle tu enlace.</p>
 
     {% if stats.pending %}
       <h3 class="mt">Listos para usar</h3>
