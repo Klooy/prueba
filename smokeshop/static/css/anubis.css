@@ -519,6 +519,28 @@ small, .muted { color: var(--dim); }
   box-shadow: 0 8px 22px rgba(0, 0, 0, .5), 0 0 22px rgba(232, 184, 74, .35);
 }
 .ribbon .icon, .product .ribbon .icon { width: 12px; height: 12px; }
+/* compartir el producto (WhatsApp, estados…): sobre la foto, frente al número */
+.share-btn {
+  position: absolute; right: 18px; bottom: 14px; z-index: 4;
+  display: grid; place-items: center;
+  width: 42px; height: 42px; border-radius: 50%;
+  border: 1px solid rgba(255, 227, 154, .55);
+  background: rgba(4, 6, 4, .72);
+  -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+  color: var(--gold-hi);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .55);
+  transition: transform .2s, background .2s, border-color .2s, color .2s;
+}
+.share-btn:hover { background: rgba(14, 79, 44, .88); border-color: var(--jade); color: var(--jade-hi); text-decoration: none; }
+.share-btn:active { transform: scale(.92); }
+.share-btn:focus-visible { outline: 2px solid var(--jade-hi); outline-offset: 3px; }
+.share-btn .icon { width: 19px; height: 19px; }
+/* llegó por el enlace compartido de este producto */
+.product.shared {
+  box-shadow: var(--shadow), 0 0 0 2px rgba(52, 210, 122, .6), 0 0 60px -6px rgba(52, 210, 122, .6);
+  animation: shared-glow 2.4s ease-in-out 3;
+}
+@keyframes shared-glow { 50% { box-shadow: var(--shadow), 0 0 0 3px rgba(164, 255, 200, .85), 0 0 80px -4px rgba(52, 210, 122, .85); } }
 
 .product .body { padding: 16px 12px 0; display: flex; flex-direction: column; gap: 8px; flex: 1; text-align: center; }
 .tag {
@@ -752,6 +774,8 @@ input[type=file]::file-selector-button {
 .btn.leaf:hover, .btn.lapis:hover { box-shadow: 0 14px 38px -8px rgba(52, 210, 122, .75), inset 0 1px 0 rgba(255, 255, 255, .45); }
 .btn.danger { background: transparent; color: var(--carnelian); box-shadow: inset 0 0 0 1px var(--carnelian); }
 .btn.small { min-height: 40px; padding: 8px 16px; font-size: .72rem; }
+.btn.icon-only { flex: none; width: 40px; padding: 0; justify-content: center; }
+.btn.icon-only .icon { margin: 0; }
 .btn-row { display: flex; flex-wrap: wrap; gap: 10px; }
 .inline { display: inline; margin: 0; }
 
@@ -942,6 +966,13 @@ details.danger-zone[open] summary { margin-bottom: 12px; }
 
 /* --------------------------------------------------------------- pedidos (panel) */
 .list .main small.clip { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--papyrus); }
+/* menú del panel: el nombre puede ocupar dos líneas; en celulares angostos, Compartir y Ocultar
+   bajan a su propia línea para no apretar el texto */
+.product-rows li { flex-wrap: wrap; gap: 10px; }
+.list.product-rows a.rowlink { flex: 1 1 100px; }
+.product-rows .main strong { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.product-rows .row-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.product-rows .btn.small:not(.icon-only) { padding-left: 13px; padding-right: 13px; }
 .order-side { display: flex; flex-direction: column; align-items: flex-end; gap: 7px; flex: none; }
 .order-total {
   font-family: var(--f-display); font-weight: 900; font-size: 1rem; white-space: nowrap;

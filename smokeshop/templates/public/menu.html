@@ -1,6 +1,22 @@
 {% extends "base.html" %}
 {% from "_macros.html" import price %}
-{% block title %}Menú del día · {{ settings.store_name }}{% endblock %}
+{% block title %}{{ shared.title if shared else 'Menú del día' }} · {{ settings.store_name }}{% endblock %}
+{% block meta %}
+{% if shared %}
+  {# Enlace de un producto: WhatsApp arma la vista previa con su foto, su nombre y su precio. #}
+  {% set og = shares[shared.id] %}
+  <meta name="description" content="{{ og.description }}">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="{{ settings.store_name }}">
+  <meta property="og:title" content="{{ og.title }}">
+  <meta property="og:description" content="{{ og.description }}">
+  <meta property="og:url" content="{{ og.url }}">
+  <meta property="og:image" content="{{ og.image }}">
+  <meta property="og:image:alt" content="{{ shared.title }}">
+{% else %}
+  {{ super() }}
+{% endif %}
+{% endblock %}
 {% block top_links %}{% include "public/_links.html" %}{% endblock %}
 {% block content %}
 {% set dias = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'] %}
@@ -51,7 +67,8 @@
 
     <div class="products">
       {% for p in products %}
-      <article class="product reveal tone-{{ loop.index0 % 3 }}{% if p.featured %} gilded{% endif %}" data-category="{{ p.category }}" style="--d: {{ loop.index0 % 3 }}">
+      {% set sh = shares[p.id] %}
+      <article class="product reveal tone-{{ loop.index0 % 3 }}{% if p.featured %} gilded{% endif %}{% if shared and shared.id == p.id %} shared{% endif %}" id="producto-{{ p.id }}" data-category="{{ p.category }}" style="--d: {{ loop.index0 % 3 }}">
         <div class="arch">
           {% if p.image %}
             <img src="{{ image_url(p.image) }}" alt="{{ p.title }}" loading="lazy">
@@ -60,6 +77,10 @@
           {% endif %}
           {% if p.featured %}<span class="ribbon"><svg class="icon" aria-hidden="true"><use href="#i-star"/></svg>Destacado</span>{% endif %}
           <span class="idx" aria-hidden="true">{{ '%02d' % loop.index }}</span>
+          {# Sin JS abre WhatsApp con el enlace; con JS, el menú de compartir del celular (estados incluidos). #}
+          <a class="share-btn" href="https://wa.me/?text={{ (sh.text ~ ' ' ~ sh.url)|urlencode }}" target="_blank" rel="noopener"
+             data-share data-share-title="{{ sh.title }}" data-share-text="{{ sh.text }}" data-share-url="{{ sh.url }}" data-share-image="{{ sh.image }}"
+             aria-label="Compartir {{ p.title }}"><svg class="icon" aria-hidden="true"><use href="#i-share"/></svg></a>
         </div>
         <div class="body">
           {% if p.category %}<span class="tag">{{ p.category }}</span>{% endif %}
@@ -235,7 +256,17 @@
 <script src="{{ url_for('static', filename='js/photo.js', v=asset_v) }}" defer></script>
 <script src="{{ url_for('static', filename='js/cart.js', v=asset_v) }}" defer></script>
 {% endif %}
+{% if products %}<script src="{{ url_for('static', filename='js/share.js', v=asset_v) }}" defer></script>{% endif %}
 <script>
+  {% if shared %}
+  /* Llegó por el enlace de un producto: baja hasta él. */
+  (function () {
+    var card = document.getElementById("producto-{{ shared.id }}");
+    if (!card) return;
+    card.classList.add("in");
+    card.scrollIntoView({ block: "center", behavior: "instant" });
+  })();
+  {% endif %}
   /* Medidas: el precio de la tarjeta sigue a la medida elegida (también al volver atrás,
      cuando el navegador recuerda cuál estaba marcada). */
   document.querySelectorAll('[data-size]').forEach(function (radio) {

@@ -5,6 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#050705">
   <title>{% block title %}{{ settings.store_name }}{% endblock %}</title>
+  {# Vista previa al compartir un enlace (WhatsApp, estados, redes): va al principio porque
+     WhatsApp solo lee el comienzo de la página. #}
+  {% block meta %}
+  <meta name="description" content="{{ settings.tagline }}">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="{{ settings.store_name }}">
+  <meta property="og:title" content="{{ settings.store_name }}">
+  <meta property="og:description" content="{{ settings.tagline }}">
+  <meta property="og:image" content="{{ url_for('static', filename='img/anubis.jpg', _external=True) }}">
+  <meta property="og:image:width" content="1024">
+  <meta property="og:image:height" content="1024">
+  {% endblock %}
   <link rel="icon" href="{{ url_for('static', filename='img/favicon-32.png') }}" type="image/png" sizes="32x32">
   <link rel="apple-touch-icon" href="{{ url_for('static', filename='img/favicon-180.png') }}">
   <script>document.documentElement.classList.add("js")</script>

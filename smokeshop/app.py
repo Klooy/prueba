@@ -8,6 +8,7 @@ consultan su código de referido y envían su pedido por WhatsApp; cada pedido
 queda en el historial del panel.
 """
 import hashlib
+import io
 import json
 import os
 import secrets
@@ -22,9 +23,10 @@ from itertools import zip_longest
 from urllib.parse import quote, urlsplit
 
 from flask import (
-    Flask, abort, flash, g, redirect, render_template, request, send_from_directory, session,
+    Flask, Response, abort, flash, g, redirect, render_template, request, send_from_directory, session,
     url_for,
 )
+from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -128,6 +130,9 @@ REWARD_LABELS = {
 MAX_DISCOUNT = 10_000_000  # tope de seguridad contra ceros de más al escribir el valor
 MAX_PRICE = 100_000_000    # tope del precio de una medida (mismo motivo)
 MAX_PRODUCT_OPTIONS = 12   # medidas por producto
+# Foto de la vista previa al compartir un producto: WhatsApp no la muestra si pesa más de ~300 KB.
+SHARE_IMAGE_SIDE = 1080
+SHARE_IMAGE_MAX_BYTES = 250_000
 
 ORDER_STATUSES = {         # en este orden salen los filtros del historial
     "nuevo": "Nuevo",
@@ -180,6 +185,10 @@ def create_app(test_config=None):
         if app.config["DEMO_DATA"]:
             seed_demo()
 
+    if ON_VERCEL:
+        # Detrás del proxy de Vercel: las direcciones completas (enlaces para compartir, og:image)
+        # salen con https y el dominio público.
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
     register_hooks(app)
     register_public_routes(app)
     register_admin_routes(app)
@@ -880,11 +889,88 @@ def image_url(name, external=False):
     return url_for("uploaded", name=name, _external=external)
 
 
+def read_image(name):
+    """Bytes de una foto guardada (en Supabase Storage o en la carpeta de subidas), o None."""
+    from flask import current_app
+    name = os.path.basename(name or "")
+    if not name:
+        return None
+    if storage_target():
+        try:
+            with urllib.request.urlopen(image_url(name), timeout=10) as resp:
+                return resp.read(current_app.config["MAX_CONTENT_LENGTH"] + 1)
+        except OSError:
+            return None
+    path = os.path.join(current_app.config["UPLOAD_FOLDER"], name)
+    if not os.path.isfile(path):
+        return None
+    with open(path, "rb") as fh:
+        return fh.read()
+
+
+def share_image_name(image):
+    """Nombre de la foto para compartir: cambia cuando cambia la foto (y así se renueva la caché)."""
+    return os.path.splitext(os.path.basename(image))[0]
+
+
+def share_image_bytes(data):
+    """Foto de un producto lista para la vista previa de WhatsApp: JPEG de hasta SHARE_IMAGE_SIDE px
+    por lado y menos de SHARE_IMAGE_MAX_BYTES (baja la calidad y, si hace falta, el tamaño)."""
+    from PIL import Image, ImageOps
+    img = ImageOps.exif_transpose(Image.open(io.BytesIO(data)))
+    if img.mode in ("RGBA", "LA", "P"):                  # transparencia sobre el fondo de la tienda
+        rgba = img.convert("RGBA")
+        img = Image.new("RGB", rgba.size, (4, 6, 4))
+        img.paste(rgba, mask=rgba.getchannel("A"))
+    img = img.convert("RGB")
+    side = SHARE_IMAGE_SIDE
+    while True:
+        small = img.copy()
+        small.thumbnail((side, side), Image.LANCZOS)
+        for quality in (85, 78, 70, 62):
+            out = io.BytesIO()
+            small.save(out, "JPEG", quality=quality, optimize=True)
+            if out.tell() <= SHARE_IMAGE_MAX_BYTES or side <= 480:
+                return out.getvalue()
+        side = side * 3 // 4
+
+
+def price_text(product, sizes):
+    """Precio corto de un producto: "$240.000", "desde $50.000" (con medidas) o el texto que
+    tenga ("Consultar")."""
+    if sizes:
+        low = format_cop(min(option["price"] for option in sizes))
+        return low if len(sizes) == 1 else f"desde {low}"
+    return format_cop(product["price"]) or product["price"]
+
+
+def product_share(product, sizes):
+    """Lo que se comparte de un producto: el enlace a su página (con la foto que WhatsApp muestra en
+    la vista previa), el título, la descripción y el texto que acompaña al enlace."""
+    settings = get_settings()
+    price = price_text(product, sizes)
+    title = f"{product['title']} — {price}" if price else product["title"]
+    detail = " · ".join(f"{option['label']} {format_cop(option['price'])}" for option in sizes)
+    description = " · ".join(part for part in (detail, product["description"]) if part) or settings["tagline"]
+    if product["image"]:
+        image = url_for("product_share_image", product_id=product["id"],
+                        name=share_image_name(product["image"]), _external=True)
+    else:
+        image = url_for("static", filename="img/anubis.jpg", _external=True)
+    return {
+        "url": url_for("product_page", product_id=product["id"], _external=True),
+        "title": title,
+        "description": description[:200],
+        "image": image,
+        "text": f"{title} en {settings['store_name']}. Pídelo aquí:",
+    }
+
+
 def asset_version():
     """Huella corta de los estilos y los scripts: cambia cuando cambian, para invalidar la caché."""
     if "asset_v" not in ASSET_CACHE:
         digest = hashlib.md5()
-        for name in ("css/anubis.css", "css/fonts.css", "js/cart.js", "js/photo.js"):
+        for name in ("css/anubis.css", "css/fonts.css", "js/cart.js", "js/photo.js", "js/share.js"):
             with open(os.path.join(BASE_DIR, "static", name), "rb") as fh:
                 digest.update(fh.read())
         ASSET_CACHE["asset_v"] = digest.hexdigest()[:10]
@@ -980,32 +1066,69 @@ def register_hooks(app):
 
 # ----------------------------------------------------------------------- public
 
+def render_menu(shared=None):
+    """El menú del día. Con `shared` (un producto que alguien compartió) la página lleva la vista
+    previa de ese producto para WhatsApp y baja hasta él."""
+    products = get_db().execute(
+        "SELECT * FROM products WHERE active = 1 ORDER BY featured DESC, created_at DESC, id DESC"
+    ).fetchall()
+    categories = []
+    for p in products:
+        if p["category"] and p["category"] not in categories:
+            categories.append(p["category"])
+    options = options_by_product(p["id"] for p in products)
+    # Lo que necesita el carrito (en el navegador) para calcular totales y armar el pedido.
+    menu_items = [
+        {
+            "id": p["id"],
+            "title": p["title"],
+            "price": int(p["price"]) if p["price"].isdecimal() else None,
+            "label": format_cop(p["price"]) or p["price"],
+            "options": options.get(p["id"], []),
+        }
+        for p in products
+    ]
+    shares = {p["id"]: product_share(p, options.get(p["id"], [])) for p in products}
+    return render_template(
+        "public/menu.html", products=products, categories=categories, menu_items=menu_items,
+        options=options, shares=shares, shared=shared, payment_methods=payment_methods(), today=local_now(),
+    )
+
+
 def register_public_routes(app):
     @app.route("/")
     def menu():
-        products = get_db().execute(
-            "SELECT * FROM products WHERE active = 1 ORDER BY featured DESC, created_at DESC, id DESC"
-        ).fetchall()
-        categories = []
-        for p in products:
-            if p["category"] and p["category"] not in categories:
-                categories.append(p["category"])
-        options = options_by_product(p["id"] for p in products)
-        # Lo que necesita el carrito (en el navegador) para calcular totales y armar el pedido.
-        menu_items = [
-            {
-                "id": p["id"],
-                "title": p["title"],
-                "price": int(p["price"]) if p["price"].isdecimal() else None,
-                "label": format_cop(p["price"]) or p["price"],
-                "options": options.get(p["id"], []),
-            }
-            for p in products
-        ]
-        return render_template(
-            "public/menu.html", products=products, categories=categories, menu_items=menu_items,
-            options=options, payment_methods=payment_methods(), today=local_now(),
-        )
+        return render_menu()
+
+    @app.route("/p/<int:product_id>")
+    def product_page(product_id):
+        """Enlace para compartir un producto (en un estado de WhatsApp, por ejemplo)."""
+        product = get_db().execute(
+            "SELECT * FROM products WHERE id = ? AND active = 1", (product_id,)).fetchone()
+        if not product:
+            flash("Ese producto ya no está en el menú de hoy. Mira lo que tenemos.", "error")
+            return redirect(url_for("menu"))
+        return render_menu(shared=product)
+
+    @app.route("/p/<int:product_id>/<name>.jpg")
+    def product_share_image(product_id, name):
+        """Foto liviana del producto para la vista previa del enlace. Vercel la guarda en caché."""
+        product = get_db().execute("SELECT image FROM products WHERE id = ?", (product_id,)).fetchone()
+        if not product or not product["image"]:
+            abort(404)
+        if name != share_image_name(product["image"]):          # foto cambiada: va a la nueva
+            return redirect(url_for("product_share_image", product_id=product_id,
+                                    name=share_image_name(product["image"])))
+        data = read_image(product["image"])
+        if not data:
+            abort(404)
+        try:
+            jpeg = share_image_bytes(data)
+        except (OSError, ValueError):                        # el archivo no es una imagen
+            abort(404)
+        resp = Response(jpeg, mimetype="image/jpeg")
+        resp.headers["Cache-Control"] = "public, max-age=604800, s-maxage=31536000, immutable"
+        return resp
 
     @app.route("/uploads/<path:name>")
     def uploaded(name):
@@ -1510,7 +1633,10 @@ def register_admin_routes(app):
         ).fetchall()
         sizes = {row["product_id"]: (row["n"], row["low"]) for row in db.execute(
             "SELECT product_id, COUNT(*) AS n, MIN(price) AS low FROM product_options GROUP BY product_id").fetchall()}
-        return render_template("admin/products.html", products=products, sizes=sizes)
+        active = [p for p in products if p["active"]]       # solo se comparte lo que está en el menú
+        options = options_by_product(p["id"] for p in active)
+        shares = {p["id"]: product_share(p, options.get(p["id"], [])) for p in active}
+        return render_template("admin/products.html", products=products, sizes=sizes, shares=shares)
 
     @app.route("/admin/menu/nuevo", methods=["GET", "POST"])
     @app.route("/admin/menu/<int:product_id>/editar", methods=["GET", "POST"])
