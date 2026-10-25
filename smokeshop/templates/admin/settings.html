@@ -37,6 +37,17 @@
     {% endif %}
   </section>
 
+  <section class="card" id="referidos">
+    <h2><svg class="icon" aria-hidden="true"><use href="#i-users"/></svg> Programa de referidos</h2>
+    <div class="field">
+      <label for="referral_value">Valor de cada referido <span class="muted">(COP)</span></label>
+      <div class="input-prefix"><span>$</span><input id="referral_value" name="referral_value" type="text" inputmode="numeric"
+           value="{{ settings.referral_value if settings.referral_value != '0' else '' }}" placeholder="5000" autocomplete="off" aria-describedby="referral-hint"></div>
+      <small class="hint" id="referral-hint">Cada persona que se registre con el enlace o el código de un cliente le suma este valor en descuento a quien la invitó. Vale para los referidos nuevos; vacío = no suma.</small>
+    </div>
+    <label class="check"><input type="checkbox" name="self_signup" value="1" {% if settings.self_signup == '1' %}checked{% endif %}> Los clientes pueden registrarse solos desde la web</label>
+  </section>
+
   <section class="card">
     <h2>Seguridad</h2>
     <div class="field"><label for="new_password">Nueva contraseña <span class="muted">(déjala vacía para no cambiarla)</span></label><input id="new_password" name="new_password" type="password" autocomplete="new-password"></div>

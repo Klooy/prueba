@@ -321,6 +321,10 @@ def test_legacy_percent_rewards_are_migrated(tmp_path):
     post(client, "/admin/clientes/1/descuento", {"amount": "7000"})  # inserta con la columna nueva
     html = client.get("/admin/clientes/1").get_data(as_text=True)
     assert "10 %" in html and "$7.000" in html
+    nuevo = new_customer(client, "Nuevo", "5550001111")              # columna origin agregada sola
+    from app import get_db
+    with app.app_context():
+        assert get_db().execute("SELECT origin FROM customers WHERE id = ?", (nuevo,)).fetchone()[0] == "tienda"
 
 
 def test_settings_without_percentages(client):
@@ -339,7 +343,8 @@ def add_product(client, title, price="", **extra):
 
 
 def save_settings(client, whatsapp, **extra):
-    data = {"store_name": "Templo", "tagline": "T", "code_prefix": "ANK", "whatsapp": whatsapp, **extra}
+    data = {"store_name": "Templo", "tagline": "T", "code_prefix": "ANK", "whatsapp": whatsapp,
+            "self_signup": "1", **extra}
     return post(client, "/admin/ajustes", data, follow_redirects=True)
 
 
@@ -667,7 +672,7 @@ def test_postgres_adapter_speaks_like_sqlite():
 def test_panel_shows_where_data_is_kept(app, client, monkeypatch):
     login(client)
     ajustes = client.get("/admin/ajustes").get_data(as_text=True)
-    assert "Dónde se guardan los datos" in ajustes and "Archivo en este equipo" in ajustes
+    assert "Dónde se guardan los datos" in ajustes and ("Postgres" if PG_URL else "Archivo en este equipo") in ajustes
     assert "espacio temporal" not in client.get("/admin").get_data(as_text=True)
 
     import app as app_module
@@ -692,3 +697,152 @@ def test_env_values_tolerate_pasted_spaces_and_quotes(monkeypatch):
     monkeypatch.setenv("SUPABASE_URL", ' "https://abc.supabase.co" \n')
     assert env("SUPABASE_URL") == "https://abc.supabase.co"
     assert env("NO_EXISTE_ESTA_VARIABLE") == ""
+
+
+def signup(client, name, phone, ref="", **extra):
+    data = {"name": name, "phone": phone, "ref": ref, "adult": "1", "consent": "1", **extra}
+    return post(client, "/registro", data)
+
+
+def customer_by_phone(app, phone):
+    from app import get_db
+    with app.app_context():
+        return get_db().execute("SELECT * FROM customers WHERE phone = ?", (phone,)).fetchone()
+
+
+def test_signup_from_referral_link_gives_points_to_referrer(app, client):
+    login(client)
+    save_settings(client, "", referral_value="5.000")
+    ana = new_customer(client, "Ana Ramírez", "3001112222")
+    code = code_of(app, ana)
+
+    landing = client.get(f"/r/{code}").get_data(as_text=True)
+    assert "Ana te abre las puertas" in landing and f'name="ref" value="{code}"' in landing
+    assert "$5.000" in landing and "Soy mayor de 18 años" in landing
+
+    resp = signup(client, "Beto Cruz", "300 555 1234", ref=code)
+    assert resp.status_code == 302 and resp.headers["Location"].endswith("/mi-codigo")
+    beto = customer_by_phone(app, "3005551234")
+    assert beto["origin"] == "web" and beto["referred_by"] == ana
+    assert [tuple(r)[:2] for r in rewards_of(app, ana)] == [("referral", 5000)]
+    assert rewards_of(app, beto["id"]) == []
+
+    mine = client.get("/mi-codigo").get_data(as_text=True)             # recuerda al cliente nuevo
+    assert beto["code"] in mine and "¡Listo! Este es tu código" in mine
+    assert f"/r/{beto['code']}" in mine and "Por cada referido" in mine
+
+    ana_page = post(client, "/mi-codigo", {"code": code}).get_data(as_text=True)
+    assert '<div class="num">1</div><div class="lbl">Referidos</div>' in ana_page
+    assert "Por cada referido" in ana_page and "$5.000" in ana_page
+    assert f"/r/{code}" in ana_page and "Reg%C3%ADstrate%20con%20mi%20enlace" in ana_page   # texto para WhatsApp
+
+    lista = client.get("/admin/clientes").get_data(as_text=True)
+    assert '<span class="badge dim">Web</span>' in lista
+
+
+def test_signup_validation(app, client):
+    login(client)
+    save_settings(client, "", referral_value="5000")
+    ana = new_customer(client, "Ana", "3001112222")
+    code = code_of(app, ana)
+
+    html = signup(client, "Sin permiso", "3009998888", consent="").get_data(as_text=True)
+    assert "autoriza el uso de tus datos" in html and customer_by_phone(app, "3009998888") is None
+    html = signup(client, "Otra Ana", "300 111 2222").get_data(as_text=True)
+    assert "Ese celular ya tiene un código" in html and code not in html  # no revela el código ajeno
+    html = signup(client, "Carlos", "3007776666", ref="ANK-ZZZZZ").get_data(as_text=True)
+    assert "no existe" in html and 'value="Carlos"' in html
+    assert signup(client, "", "3007776666").status_code == 200
+
+    resp = signup(client, "Dani", "3004443333", ref=code.lower())          # código escrito a mano
+    assert resp.status_code == 302 and customer_by_phone(app, "3004443333")["referred_by"] == ana
+
+    save_settings(client, "", self_signup="")                            # registro cerrado
+    assert client.get("/registro").status_code == 404
+    assert "Muestra este código" in client.get(f"/r/{code}").get_data(as_text=True)
+    assert "Registrarme" not in client.get("/").get_data(as_text=True)
+
+
+def test_signup_without_referral_value_counts_but_gives_no_discount(app, client):
+    login(client)
+    ana = new_customer(client, "Ana", "3001112222")
+    assert signup(client, "Beto", "3005551234", ref=code_of(app, ana)).status_code == 302
+    assert customer_by_phone(app, "3005551234")["referred_by"] == ana and rewards_of(app, ana) == []
+    assert signup(client, "Caro", "3006667777").status_code == 302                 # sin quién la invitó
+    assert customer_by_phone(app, "3006667777")["referred_by"] is None
+
+
+def test_signup_flood_is_limited(app, client, monkeypatch):
+    import app as app_module
+    monkeypatch.setattr(app_module, "SIGNUP_LIMIT", (1, 3600))
+    assert signup(client, "Uno", "3001000001").status_code == 302
+    html = signup(client, "Dos", "3001000002").get_data(as_text=True)
+    assert "muchos registros seguidos" in html and customer_by_phone(app, "3001000002") is None
+
+
+def test_referral_value_in_settings(client):
+    login(client)
+    for bad in ("diez mil", "20.000.000"):
+        html = save_settings(client, "", referral_value=bad).get_data(as_text=True)
+        assert "Valor de cada referido:" in html
+    assert "Ajustes guardados" in save_settings(client, "", referral_value="$7.500").get_data(as_text=True)
+    ajustes = client.get("/admin/ajustes").get_data(as_text=True)
+    assert 'value="7500"' in ajustes and "Programa de referidos" in ajustes
+    form = client.get("/admin/clientes/nuevo").get_data(as_text=True)          # el valor sale por defecto
+    assert 'name="ref_amount" type="text" inputmode="numeric" value="7500"' in form
+    menu = client.get("/").get_data(as_text=True)
+    assert "Gana $7.500 de descuento por cada amigo" in menu and "Registrarme" in menu
+
+
+def test_deleting_fake_referral_removes_unused_points(app, client):
+    login(client)
+    save_settings(client, "", referral_value="5000")
+    ana = new_customer(client, "Ana", "3001112222")
+    code = code_of(app, ana)
+    signup(client, "Falso Uno", "3000000001", ref=code)
+    signup(client, "Real Dos", "3000000002", ref=code)
+    assert len(rewards_of(app, ana)) == 2
+    real = customer_by_phone(app, "3000000002")["id"]
+    canjeado = [r for r in rewards_of(app, ana)][1]
+    from app import get_db
+    with app.app_context():                                    # el del cliente real ya se usó en caja
+        db = get_db()
+        db.execute("UPDATE rewards SET redeemed_at = '2026-10-25T10:00:00' WHERE source_id = ?", (real,))
+        db.commit()
+    post(client, f"/admin/clientes/{customer_by_phone(app, '3000000001')['id']}/borrar")
+    post(client, f"/admin/clientes/{real}/borrar")
+    restantes = rewards_of(app, ana)
+    assert len(restantes) == 1 and restantes[0]["redeemed_at"] and canjeado["amount"] == 5000
+
+
+def test_my_code_remembers_customer_until_logout(app, client):
+    login(client)
+    ana = new_customer(client, "Ana", "3001112222")
+    code = code_of(app, ana)
+    assert "Consultar" in client.get("/mi-codigo").get_data(as_text=True)
+    post(client, "/mi-codigo", {"code": code})
+    assert code in client.get("/mi-codigo").get_data(as_text=True)
+    post(client, "/mi-codigo/salir")
+    html = client.get("/mi-codigo").get_data(as_text=True)
+    assert code not in html and "Regístrate gratis" in html
+
+
+@pytest.mark.skipif(not PG_URL, reason="solo con TEST_DATABASE_URL")
+def test_postgres_database_from_before_gets_new_columns(tmp_path):
+    """Como la base de Supabase en producción: customers creada sin la columna origin."""
+    import psycopg
+    with psycopg.connect(PG_URL, autocommit=True) as con:
+        con.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public")
+        con.execute("CREATE TABLE customers (id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, "
+                    "name TEXT NOT NULL, phone TEXT NOT NULL UNIQUE, code TEXT NOT NULL UNIQUE, "
+                    "referred_by BIGINT REFERENCES customers(id) ON DELETE SET NULL, "
+                    "notes TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL)")
+        con.execute("INSERT INTO customers (name, phone, code, created_at) "
+                    "VALUES ('Ana', '3001112222', 'ANK-AAAAA', '2026-10-24T10:00:00')")
+    app = create_app({"DATABASE": str(tmp_path / "x.db"), "UPLOAD_FOLDER": str(tmp_path / "u"),
+                      "SECRET_KEY": "t", "DATABASE_URL": PG_URL})
+    from app import get_db
+    with app.app_context():
+        assert get_db().execute("SELECT origin FROM customers WHERE code = 'ANK-AAAAA'").fetchone()[0] == "tienda"
+    create_app({"DATABASE": str(tmp_path / "x.db"), "UPLOAD_FOLDER": str(tmp_path / "u"),
+                "SECRET_KEY": "t", "DATABASE_URL": PG_URL})          # segundo arranque: no vuelve a alterar

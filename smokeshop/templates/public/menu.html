@@ -95,18 +95,19 @@
 <section class="ticket reveal" aria-labelledby="ref-title">
   <div class="stub">
     <div class="pct foil">$</div>
-    <div class="off">Descuentos en pesos</div>
+    <div class="off">{% if referral_value %}{{ referral_value|cop }} por amigo{% else %}Descuentos en pesos{% endif %}</div>
   </div>
   <div class="info">
     <p class="kicker" style="margin-bottom:10px">Programa de referidos</p>
     <h2 id="ref-title">Comparte el <em>humo sagrado</em></h2>
     <ol class="steps">
-      <li><b>1</b>Pide tu código en tienda</li>
-      <li><b>2</b>Compártelo con tus amigos</li>
-      <li><b>3</b>Gana descuentos en pesos por cada amigo que llegue con tu código</li>
+      <li><b>1</b>{% if self_signup %}Regístrate gratis y recibe tu código{% else %}Pide tu código en tienda{% endif %}</li>
+      <li><b>2</b>Comparte tu enlace con tus amigos</li>
+      <li><b>3</b>{% if referral_value %}Gana {{ referral_value|cop }} de descuento por cada amigo que se registre con tu enlace{% else %}Gana descuentos en pesos por cada amigo que llegue con tu código{% endif %}</li>
     </ol>
     <div class="hero-actions">
-      <a class="btn leaf" href="{{ url_for('my_code') }}"><svg class="icon" aria-hidden="true"><use href="#i-ankh"/></svg>Consultar mi código</a>
+      {% if self_signup %}<a class="btn leaf" href="{{ url_for('register') }}"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Registrarme</a>{% endif %}
+      <a class="btn {{ 'ghost' if self_signup else 'leaf' }}" href="{{ url_for('my_code') }}"><svg class="icon" aria-hidden="true"><use href="#i-ankh"/></svg>Consultar mi código</a>
       {% if settings.whatsapp %}
       <a class="btn ghost" href="https://wa.me/{{ settings.whatsapp }}" target="_blank" rel="noopener">Escríbenos</a>
       {% endif %}

@@ -6,10 +6,15 @@
 <section class="hero compact">
   <svg class="small-mark" aria-hidden="true"><use href="#i-leaf"/></svg>
   <h1 class="gradient-text">Tu código sagrado</h1>
-  <p>Escribe el código que te dimos en tienda para ver tus referidos y tus descuentos.</p>
+  {% if customer %}
+  <p>Comparte tu enlace: cada amigo que se registre con él te suma descuento.</p>
+  {% else %}
+  <p>Escribe tu código para ver tus referidos, tus descuentos y tu enlace para invitar.</p>
+  {% endif %}
 </section>
 
 <div class="narrow">
+  {% if not customer %}
   <form method="post" class="card">
     <input type="hidden" name="csrf" value="{{ csrf_token }}">
     <div class="field">
@@ -19,10 +24,14 @@
     </div>
     <button class="btn leaf block" type="submit">Consultar</button>
   </form>
+  {% if self_signup %}
+  <p class="center muted mt" style="font-size:.9rem">¿Aún no tienes código? <a href="{{ url_for('register') }}">Regístrate gratis</a></p>
+  {% endif %}
+  {% endif %}
 
   {% if customer %}
   {% set invite_url = url_for('referral_landing', code=customer.code, _external=True) %}
-  <div class="card gilded mt">
+  <div class="card gilded">
     <p class="center muted" style="margin-bottom:10px">Hola, {{ customer.name|first_name }}</p>
     <div class="code-plate">
       <div class="code">{{ customer.code }}</div>
@@ -31,6 +40,23 @@
       <div class="stat"><div class="num">{{ stats.referrals }}</div><div class="lbl">Referidos</div></div>
       <div class="stat">{{ money_stat(stats.total) }}<div class="lbl">Para usar</div></div>
     </div>
+    {% if referral_value %}
+    <div class="reward mt">
+      <div class="pct">{{ referral_value|cop }}</div>
+      <div class="info"><strong>Por cada referido</strong><br><small>Lo ganas cada vez que un amigo se registra con tu enlace o tu código.</small></div>
+    </div>
+    {% endif %}
+
+    <h3 class="mt">Tu enlace para invitar</h3>
+    <div class="share-box">
+      <input type="text" readonly value="{{ invite_url }}" id="invite" aria-label="Enlace de invitación">
+      <button class="btn small ghost" type="button" data-copy="invite" aria-label="Copiar"><svg class="icon"><use href="#i-copy"/></svg></button>
+    </div>
+    {% set share_text = ('Te invito a ' ~ settings.store_name ~ '. Regístrate con mi enlace: ' ~ invite_url) if self_signup
+                        else ('Te invito a ' ~ settings.store_name ~ '. Usa mi código ' ~ customer.code ~ ' en tu primera visita: ' ~ invite_url) %}
+    <a class="btn block mt" target="_blank" rel="noopener" href="https://wa.me/?text={{ share_text|urlencode }}">
+      <svg class="icon" aria-hidden="true"><use href="#i-share"/></svg>Compartir por WhatsApp
+    </a>
 
     {% if stats.pending %}
       <h3 class="mt">Listos para usar</h3>
@@ -42,17 +68,11 @@
       {% endfor %}
       <p class="muted mt" style="font-size:.88rem">Muestra tu código en caja y descuéntalos de tu compra.</p>
     {% endif %}
-
-    <h3 class="mt">Comparte tu invitación</h3>
-    <div class="share-box">
-      <input type="text" readonly value="{{ invite_url }}" id="invite" aria-label="Enlace de invitación">
-      <button class="btn small ghost" type="button" data-copy="invite" aria-label="Copiar"><svg class="icon"><use href="#i-copy"/></svg></button>
-    </div>
-    <a class="btn block mt" target="_blank" rel="noopener"
-       href="https://wa.me/?text={{ ('Te invito a ' ~ settings.store_name ~ '. Usa mi código ' ~ customer.code ~ ' en tu primera visita: ' ~ invite_url)|urlencode }}">
-      <svg class="icon" aria-hidden="true"><use href="#i-share"/></svg>Compartir por WhatsApp
-    </a>
   </div>
+  <form method="post" action="{{ url_for('my_code_forget') }}" class="center mt">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    <button class="btn small ghost" type="submit">¿No eres {{ customer.name|first_name }}? Salir</button>
+  </form>
   {% endif %}
 </div>
 {% endblock %}

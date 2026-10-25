@@ -2,7 +2,7 @@
 
 Sistema privado para una smoke shop:
 
-- **Referidos**: registra clientes y cada uno recibe un código (`ANK-XXXXX`). Al registrar a alguien con el código de quien lo refirió, queda guardado quién trajo a quién.
+- **Referidos**: los clientes se registran solos en `/registro` (o desde el enlace de un amigo, `/r/<código>`), o los registras tú en el panel. Cada uno recibe un código (`ANK-XXXXX`) y un enlace para invitar. Cada persona que se registra con el enlace o el código de alguien le suma a quien la invitó el **valor por referido**, en pesos, que defines en **Ajustes → Programa de referidos**; ese valor queda como un descuento para canjear en la tienda. En "Mi código" cada cliente ve su enlace, cuántos referidos tiene, cuánto vale cada uno y su saldo. El registro pide confirmar la mayoría de edad y autorizar el uso de los datos. En el panel, los clientes que se registraron por la web salen marcados como "Web", y si borras un registro falso se le quita a quien lo invitó el descuento que aún no había usado.
 - **Descuentos en pesos (COP)**: el administrador decide el valor de cada descuento. Lo asigna con el código del cliente en la página **Descuentos**, al registrar un referido (valor para quien refirió y bienvenida para el nuevo, ambos opcionales) o desde la ficha del cliente. Cada descuento se canjea una sola vez, uno por uno o con **Canjear todo**; el cliente ve su saldo en pesos en "Mi código".
 - **Menú del día**: sube novedades (foto, precio, categoría, destacado) sin llevar inventario. Ocultar no borra; "Vaciar menú" deja todo listo para el día siguiente.
 - **Pedidos por WhatsApp**: el cliente agrega productos del menú a su pedido y, al tocar **Pedir por WhatsApp**, se abre el chat de la tienda con el pedido ya escrito (número de pedido, productos, cantidades, total en pesos y, si quiere, su nombre, su código de cliente y una nota). El número de la tienda se define en **Ajustes → Pedidos por WhatsApp**; mientras no haya uno, el menú se muestra sin carrito. El carrito vive en el navegador del cliente hasta que lo envía.
@@ -55,12 +55,13 @@ Sin `DATABASE_URL`, Vercel sirve como vista previa: arranca con productos y clie
 | Ruta | Quién | Para qué |
 |---|---|---|
 | `/` | Público | Menú del día |
-| `/mi-codigo` | Clientes | Ver sus referidos y descuentos con su código |
-| `/r/<código>` | Invitados | Página de invitación |
+| `/registro` | Público | Registro de clientes; con el enlace `/r/<código>` queda guardado quién los invitó |
+| `/mi-codigo` | Clientes | Ver su enlace para invitar, sus referidos y sus descuentos |
+| `/r/<código>` | Invitados | Enlace de referido: invitación y registro |
 | `/pedido` (POST) | Clientes | Guarda el pedido del carrito y abre el WhatsApp de la tienda |
 | `/admin` | Dueño | Panel: pedidos, clientes, descuentos, menú, ajustes |
 
-El nombre de la tienda, la frase del menú, el prefijo de los códigos y el WhatsApp para pedidos se cambian en **Ajustes** (el engranaje de arriba en el panel).
+El nombre de la tienda, la frase del menú, el prefijo de los códigos, el WhatsApp para pedidos, el valor de cada referido y si los clientes pueden registrarse solos se cambian en **Ajustes** (el engranaje de arriba en el panel).
 
 ## Pruebas
 

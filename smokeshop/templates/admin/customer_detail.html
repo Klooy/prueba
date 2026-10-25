@@ -18,7 +18,7 @@
       <div class="stat">{{ money_stat(pending_total) }}<div class="lbl">Por canjear</div></div>
     </div>
     <p class="mt muted" style="font-size:.9rem;margin-bottom:8px">
-      Tel. {{ customer.phone }} · Desde {{ customer.created_at|fecha }}<br>
+      Tel. {{ customer.phone }} · Desde {{ customer.created_at|fecha }}{% if customer.origin == 'web' %} · Se registró en la web{% endif %}<br>
       {% if customer.referrer_name %}Referido por <a href="{{ url_for('admin_customer_detail', customer_id=customer.referrer_id) }}">{{ customer.referrer_name }}</a>{% else %}Llegó por su cuenta{% endif %}
     </p>
     {% if customer.notes %}<p style="font-size:.92rem">{{ customer.notes }}</p>{% endif %}
@@ -120,7 +120,7 @@
   <details class="danger-zone mt">
     <summary>Eliminar cliente</summary>
     <form method="post" action="{{ url_for('admin_customer_delete', customer_id=customer.id) }}"
-          onsubmit='return confirm({{ ("¿Eliminar a " ~ customer.name ~ " y todos sus descuentos? Sus referidos se conservan.")|tojson }})'>
+          onsubmit='return confirm({{ ("¿Eliminar a " ~ customer.name ~ " y todos sus descuentos? Si alguien ganó un descuento por referirlo y aún no lo usa, también se quita. Sus referidos se conservan.")|tojson }})'>
       <input type="hidden" name="csrf" value="{{ csrf_token }}">
       <button class="btn small danger" type="submit">Eliminar definitivamente</button>
     </form>

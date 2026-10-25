@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Invitación' if referrer else 'Registro' }} · {{ settings.store_name }}{% endblock %}
+{% block top_links %}{% include "public/_links.html" %}{% endblock %}
+{% block content %}
+<section class="hero compact">
+  <div class="embers" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+  {% include "_hero_emblem.html" %}
+  {% if referrer %}
+    <div class="eyebrow">Invitación al templo</div>
+    <h1 class="gradient-text">{{ referrer.name|first_name }} te abre las puertas</h1>
+    <p>Regístrate y recibe tu propio código para ganar descuentos invitando a tus amigos.</p>
+  {% else %}
+    <div class="eyebrow">Programa de referidos</div>
+    <h1 class="gradient-text">Únete al templo</h1>
+    <p>Regístrate gratis y recibe tu código y tu enlace para invitar a tus amigos.</p>
+  {% endif %}
+</section>
+
+<div class="narrow">
+  {% if referral_value %}
+  <div class="reward">
+    <div class="pct">{{ referral_value|cop }}</div>
+    <div class="info"><strong>Por cada amigo que se registre con tu enlace</strong><br><small>Se suman como descuento para tus compras en la tienda.</small></div>
+  </div>
+  {% endif %}
+
+  <form method="post" action="{{ url_for('register') }}" class="card gilded mt">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    <div class="field">
+      <label for="name">Tu nombre</label>
+      <input id="name" name="name" type="text" maxlength="60" autocomplete="name" value="{{ form.name }}" required>
+    </div>
+    <div class="field">
+      <label for="phone">Tu celular <span class="muted">(WhatsApp)</span></label>
+      <input id="phone" name="phone" type="tel" inputmode="tel" autocomplete="tel" value="{{ form.phone }}" placeholder="300 123 4567" required>
+    </div>
+    {% if referrer %}
+      <input type="hidden" name="ref" value="{{ referrer.code }}">
+      <p class="muted" style="font-size:.9rem">Te invitó <strong>{{ referrer.name|first_name }}</strong> · {{ referrer.code }}</p>
+    {% else %}
+    <div class="field">
+      <label for="ref">Código de quien te invitó <span class="muted">(opcional)</span></label>
+      <input class="code-input" id="ref" name="ref" type="text" value="{{ form.ref }}" placeholder="{{ settings.code_prefix }}-XXXXX" maxlength="16" autocomplete="off" autocapitalize="characters">
+    </div>
+    {% endif %}
+    <div class="field">
+      <label class="check consent"><input type="checkbox" name="adult" value="1" required> Soy mayor de 18 años.</label>
+    </div>
+    <div class="field">
+      <label class="check consent"><input type="checkbox" name="consent" value="1" required> Autorizo a {{ settings.store_name }} a guardar mi nombre y mi celular para el programa de referidos y para escribirme por WhatsApp.</label>
+    </div>
+    <button class="btn leaf block" type="submit"><svg class="icon" aria-hidden="true"><use href="#i-ankh"/></svg>Registrarme y recibir mi código</button>
+  </form>
+  <p class="center muted mt" style="font-size:.9rem">¿Ya tienes código? <a href="{{ url_for('my_code') }}">Consúltalo aquí</a></p>
+</div>
+{% endblock %}
