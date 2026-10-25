@@ -385,6 +385,7 @@ def test_cart_on_menu_posts_order_to_server(client):
     assert html.count("data-add>") == 3
     assert 'action="/pedido"' in html and 'target="_blank"' in html and "Pedir por WhatsApp" in html
     assert 'enctype="multipart/form-data"' in html and "Compartir mi ubicación" in html and 'name="photo"' in html
+    assert 'Llega al WhatsApp de la tienda: <strong class="tel">+57 300 123 4567</strong>' in html
     assert html.count('type="radio" name="payment"') == 4 and 'value="Nequi"' in html
     for field in ('name="name" form="cart-form"', 'name="code" form="cart-form"', 'name="note" form="cart-form"'):
         assert field in html
@@ -441,18 +442,24 @@ def test_dashboard_warns_until_whatsapp_is_set(client):
     assert "Configura el WhatsApp" not in client.get("/admin").get_data(as_text=True)
 
 
-def test_store_whatsapp_env_only_fills_empty_value(tmp_path, monkeypatch):
-    from app import get_settings, set_setting, get_db
-    monkeypatch.setenv("STORE_WHATSAPP", "300 765 4321")
+def test_whatsapp_number_only_comes_from_settings(tmp_path, monkeypatch):
+    """La variable STORE_WHATSAPP ya no llena el número: una base nueva (o una copia temporal de la
+    página) no manda pedidos a un número viejo; el número sale solo de Ajustes."""
+    from app import get_settings
+    monkeypatch.setenv("STORE_WHATSAPP", "313 413 1049")
     config = {"DATABASE": str(tmp_path / "w.db"), "UPLOAD_FOLDER": str(tmp_path / "u"), "SECRET_KEY": "t"}
     app = create_app(config)
     with app.app_context():
-        assert get_settings()["whatsapp"] == "573007654321"
-        set_setting("whatsapp", "573001112222")
-        get_db().commit()
-    app = create_app(config)                          # reinicio: no pisa lo que guardó el administrador
-    with app.app_context():
-        assert get_settings()["whatsapp"] == "573001112222"
+        assert get_settings()["whatsapp"] == ""
+    client = app.test_client()
+    login(client)
+    add_product(client, "Bong", "240000")
+    assert 'id="cart"' not in client.get("/").get_data(as_text=True)     # sin número no hay carrito
+    save_settings(client, "302 303 7856")
+    app = create_app(config)                                              # reinicio: queda el de Ajustes
+    client = app.test_client()
+    login(client)
+    assert place_order(client, "1:1").headers["Location"].startswith("https://wa.me/573023037856?text=")
 
 
 def test_my_code_remembers_code_for_cart(app, client):
@@ -686,7 +693,7 @@ def test_panel_shows_where_data_is_kept(app, client, monkeypatch):
     import app as app_module
     if not PG_URL:
         monkeypatch.setattr(app_module, "ON_VERCEL", True)        # Vercel sin DATABASE_URL ni Supabase
-        assert "espacio temporal de Vercel" in client.get("/admin").get_data(as_text=True)
+        assert "Esta copia de la página no tiene base de datos" in client.get("/admin").get_data(as_text=True)
         ajustes = client.get("/admin/ajustes").get_data(as_text=True)
         assert "Se borra cada vez que Vercel reinicia" in ajustes and "Lo que cargues aquí se perderá" in ajustes
 
@@ -945,14 +952,28 @@ def test_payment_methods_in_settings(client):
     assert 'value="Efectivo, Nequi, Daviplata, Transferencia"' in client.get("/admin/ajustes").get_data(as_text=True)
 
 
-def test_settings_say_when_whatsapp_comes_from_vercel(tmp_path, monkeypatch):
-    monkeypatch.setenv("STORE_WHATSAPP", "300 999 8888")
-    app = create_app({"DATABASE": str(tmp_path / "w.db"), "UPLOAD_FOLDER": str(tmp_path / "u"), "SECRET_KEY": "t"})
-    client = app.test_client()
+def test_panel_says_when_it_is_not_the_public_page(app, client, monkeypatch):
+    """Guardar el WhatsApp en una copia sin base de datos (vista previa de Vercel) no cambia la
+    página publicada: el panel lo avisa arriba en todas sus páginas, con el enlace al bueno."""
+    import app as app_module
     login(client)
-    assert "tomado de la variable STORE_WHATSAPP" in client.get("/admin/ajustes").get_data(as_text=True)
-    save_settings(client, "3001234567")
-    assert "tomado de la variable" not in client.get("/admin/ajustes").get_data(as_text=True)
+    save_settings(client, "302 303 7856")
+    ajustes = client.get("/admin/ajustes").get_data(as_text=True)
+    assert "Guardado en " in ajustes and "copia" not in ajustes and "vista previa" not in ajustes
+
+    monkeypatch.setenv("VERCEL_PROJECT_PRODUCTION_URL", "prueba-gray-psi.vercel.app")
+    monkeypatch.setenv("VERCEL_ENV", "preview")
+    if not PG_URL:
+        monkeypatch.setattr(app_module, "ON_VERCEL", True)        # vista previa sin DATABASE_URL
+        for page in ("/admin", "/admin/ajustes", "/admin/pedidos", "/admin/menu"):
+            html = client.get(page).get_data(as_text=True)
+            assert "Esta copia de la página no tiene base de datos" in html, page
+            assert '<a href="https://prueba-gray-psi.vercel.app/admin">' in html, page
+        assert "Solo en esta copia temporal" in client.get("/admin/ajustes").get_data(as_text=True)
+        assert "no tiene base de datos" not in client.get("/").get_data(as_text=True)   # los clientes no lo ven
+        monkeypatch.setattr(app_module, "ON_VERCEL", False)
+    html = client.get("/admin").get_data(as_text=True)               # con base de datos: solo dice que es vista previa
+    assert "no tiene base de datos" not in html and "Estás en una vista previa de Vercel" in html
 
 
 def test_old_sqlite_orders_table_gets_delivery_columns(tmp_path):

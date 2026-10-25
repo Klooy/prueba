@@ -1232,6 +1232,8 @@ html.cart-lock, html.cart-lock body { overflow: hidden; }
 }
 .btn:disabled { opacity: .4; filter: grayscale(.7); box-shadow: none; cursor: not-allowed; }
 .cart-hint { margin: 0; text-align: center; font-size: .8rem; color: var(--jade-hi); }
+.cart-to { margin: 0; text-align: center; font-size: .78rem; color: var(--dim); }
+.cart-to strong { color: var(--papyrus); font-weight: 600; }
 .cart-clear {
   justify-self: center;
   padding: 8px 12px; border: 0; background: none;

@@ -27,7 +27,8 @@
     {% if wa_saved %}
     <div class="flash ok">
       <svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>
-      <span>Los pedidos llegan a <strong class="tel">{{ wa_saved|phone }}</strong>{% if wa_env and wa_env == wa_saved %} (tomado de la variable STORE_WHATSAPP de Vercel; si no es tu número, escribe el correcto arriba y guarda){% endif %} · <a href="https://wa.me/{{ wa_saved }}" target="_blank" rel="noopener">Probar enlace</a></span>
+      <span>Los pedidos llegan a <strong class="tel">{{ wa_saved|phone }}</strong> · <a href="https://wa.me/{{ wa_saved }}" target="_blank" rel="noopener">Probar enlace</a>
+        <br><small>{% if storage.db[2] %}Guardado en {{ storage.db[0] }} ({{ storage.db[1] }}).{% else %}Solo en esta copia temporal: tu página publicada no lo ve.{% endif %}</small></span>
     </div>
     {% else %}
     <div class="flash error">

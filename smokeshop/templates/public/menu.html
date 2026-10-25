@@ -209,6 +209,7 @@
     </div>
   </div>
   <footer class="cart-foot">
+    <p class="cart-to">Llega al WhatsApp de la tienda: <strong class="tel">{{ settings.whatsapp|phone }}</strong></p>
     {# El servidor guarda el pedido (historial del panel) y abre el chat con el pedido escrito. #}
     <form id="cart-form" method="post" action="{{ url_for('place_order') }}" target="_blank" rel="noopener"
           enctype="multipart/form-data" novalidate data-cart-form>

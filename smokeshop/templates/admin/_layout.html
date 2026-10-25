@@ -10,6 +10,21 @@
     <svg class="icon" aria-hidden="true"><use href="#i-gear"/></svg><span class="lbl-opt">Ajustes</span>
   </a>
 {% endblock %}
+{# En todo el panel: avisa si esta no es la página que ven los clientes, para no guardar ajustes
+   (como el WhatsApp de los pedidos) donde no sirven. #}
+{% block notice %}
+{% if storage and not storage.db[2] %}
+<div class="flash error notice" role="alert">
+  <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>
+  <span><strong>Esta copia de la página no tiene base de datos.</strong> Lo que guardes aquí, como el WhatsApp de los pedidos, se pierde y no cambia tu página publicada.{% if storage.public_url %} Haz los cambios en <a href="https://{{ storage.public_url }}/admin">{{ storage.public_url }}/admin</a>.{% else %} Haz los cambios en el panel de tu página publicada.{% endif %}</span>
+</div>
+{% elif storage and storage.vercel_env == 'preview' %}
+<div class="flash notice">
+  <svg class="icon" aria-hidden="true"><use href="#i-eye"/></svg>
+  <span>Estás en una vista previa de Vercel, no en tu página publicada{% if storage.public_url %} (<a href="https://{{ storage.public_url }}/admin">{{ storage.public_url }}</a>){% endif %}. Usa la misma base de datos, así que lo que guardes aquí también cambia la publicada.</span>
+</div>
+{% endif %}
+{% endblock %}
 {% block footer %}
 {% set section = self.section() | trim %}
 <nav class="admin-nav" aria-label="Panel">
