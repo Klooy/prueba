@@ -28,7 +28,7 @@ En producción:
 SECRET_KEY="una-clave-larga" gunicorn -w 2 -b 0.0.0.0:8000 app:app
 ```
 
-Variables opcionales: `SECRET_KEY`, `DATABASE` (ruta del SQLite; por defecto `instance/smokeshop.db`), `DATABASE_URL` (Postgres; si está, se usa en vez de SQLite), `UPLOAD_FOLDER`, `PORT`, `STORE_WHATSAPP` (número para pedidos, p. ej. `573001234567`; se usa mientras en **Ajustes** no haya uno guardado) y las de Supabase Storage (`SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `SUPABASE_BUCKET`).
+Variables opcionales: `SECRET_KEY`, `DATABASE` (ruta del SQLite; por defecto `instance/smokeshop.db`), `DATABASE_URL` (Postgres; si está, se usa en vez de SQLite), `UPLOAD_FOLDER`, `PORT` y las de Supabase Storage (`SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `SUPABASE_BUCKET`).
 
 ## Producción: Vercel + Supabase
 
@@ -43,13 +43,14 @@ Variables opcionales: `SECRET_KEY`, `DATABASE` (ruta del SQLite; por defecto `in
    | `SUPABASE_SECRET_KEY` | Clave secreta (`sb_secret_…`) o `service_role` de **Project Settings → API Keys** |
    | `ADMIN_PASSWORD` | Contraseña del panel |
    | `SECRET_KEY` | Un texto largo y aleatorio |
-   | `STORE_WHATSAPP` | WhatsApp que recibe los pedidos, con indicativo: `573001234567` |
 
+   Marca cada variable para *Production* y *Preview*: así las vistas previas usan la misma base de datos que la página publicada.
 4. **Deploy**.
+5. En el panel de la página publicada, **Ajustes → Pedidos por WhatsApp**: el número que recibe los pedidos. Solo se configura ahí (la variable `STORE_WHATSAPP` de versiones anteriores ya no se usa y se puede borrar).
 
 Las tablas se crean solas en el primer arranque, con *Row Level Security* activado y sin políticas: nadie puede leerlas con la API pública de Supabase, solo la app con la contraseña de la base. Supabase lo muestra como un aviso informativo; es lo esperado. Con una base propia la app arranca vacía (sin datos de ejemplo). Las fotos grandes se reducen en el navegador antes de subirlas, porque Vercel no recibe envíos de más de 4,5 MB.
 
-Sin `DATABASE_URL`, Vercel sirve como vista previa: arranca con productos y clientes de ejemplo (`DEMO_DATA=1`) y todo lo que cambies se guarda en `/tmp` y **se pierde** cuando la función se recicla.
+Sin `DATABASE_URL`, Vercel sirve como vista previa: arranca con productos y clientes de ejemplo (`DEMO_DATA=1`) y todo lo que cambies se guarda en `/tmp` y **se pierde** cuando la función se recicla. El panel lo avisa arriba en todas sus páginas, con el enlace al panel de la página publicada, para no guardar ahí ajustes como el WhatsApp. En una vista previa de Vercel con base de datos, el panel también dice que es una vista previa.
 
 ## Rutas
 
@@ -62,7 +63,7 @@ Sin `DATABASE_URL`, Vercel sirve como vista previa: arranca con productos y clie
 | `/pedido` (POST) | Clientes | Guarda el pedido del carrito y abre el WhatsApp de la tienda |
 | `/admin` | Dueño | Panel: pedidos, clientes, descuentos, menú, ajustes |
 
-El nombre de la tienda, la frase del menú, el prefijo de los códigos, el WhatsApp para pedidos, los métodos de pago, el valor de cada referido y si los clientes pueden registrarse solos se cambian en **Ajustes** (el engranaje de arriba en el panel). Ajustes también avisa si el WhatsApp guardado salió de la variable `STORE_WHATSAPP` de Vercel.
+El nombre de la tienda, la frase del menú, el prefijo de los códigos, el WhatsApp para pedidos, los métodos de pago, el valor de cada referido y si los clientes pueden registrarse solos se cambian en **Ajustes** (el engranaje de arriba en el panel). Junto al WhatsApp, Ajustes dice dónde quedó guardado; el carrito del menú también muestra a qué número llega el pedido.
 
 ## Pruebas
 

@@ -342,10 +342,8 @@ def init_db():
         ensure_column(db, "orders", column, definition)                    # datos de entrega
     for key, value in DEFAULT_SETTINGS.items():
         db.execute("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO NOTHING", (key, value))
-    # STORE_WHATSAPP llena el número si el administrador aún no lo ha configurado.
-    env_whatsapp = normalize_whatsapp(os.environ.get("STORE_WHATSAPP", ""))
-    if 10 <= len(env_whatsapp) <= 15:
-        db.execute("UPDATE settings SET value = ? WHERE key = 'whatsapp' AND value = ''", (env_whatsapp,))
+    # El WhatsApp de los pedidos sale solo de Ajustes. Antes una variable STORE_WHATSAPP llenaba las
+    # bases nuevas, y así una copia de la página podía mandar los pedidos a un número viejo.
     if os.environ.get("ADMIN_PASSWORD"):
         db.execute(
             "INSERT INTO settings (key, value) VALUES ('admin_password', ?) ON CONFLICT (key) DO NOTHING",
@@ -847,7 +845,8 @@ def delete_image(name):
 
 
 def storage_status():
-    """Dónde quedan los datos y las fotos: (nombre, detalle, permanente) de cada uno."""
+    """Dónde quedan los datos y las fotos: (nombre, detalle, permanente) de cada uno, y qué copia
+    de la página es esta (en Vercel: la publicada o una vista previa, con la dirección de la publicada)."""
     from flask import current_app
     cfg = current_app.config
     if cfg["DATABASE_URL"]:
@@ -868,7 +867,8 @@ def storage_status():
         photos = ("Temporales", "Se borran cada vez que Vercel reinicia la app", False)
     else:
         photos = ("Disco de este equipo", "Carpeta de subidas", True)
-    return {"db": db, "photos": photos, "temporary": not (db[2] and photos[2])}
+    return {"db": db, "photos": photos, "temporary": not (db[2] and photos[2]),
+            "vercel_env": env("VERCEL_ENV"), "public_url": env("VERCEL_PROJECT_PRODUCTION_URL")}
 
 
 def image_url(name, external=False):
@@ -1647,8 +1647,7 @@ def register_admin_routes(app):
             get_db().commit()
             flash("Ajustes guardados.", "ok")
             return redirect(url_for("admin_settings"))
-        return render_template("admin/settings.html", wa_saved=get_settings()["whatsapp"],
-                               wa_env=normalize_whatsapp(env("STORE_WHATSAPP")))
+        return render_template("admin/settings.html", wa_saved=get_settings()["whatsapp"])
 
 
 app = create_app()
