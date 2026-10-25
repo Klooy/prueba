@@ -65,7 +65,22 @@
           {% if p.category %}<span class="tag">{{ p.category }}</span>{% endif %}
           <h3>{{ p.title }}</h3>
           {% if p.description %}<p>{{ p.description }}</p>{% endif %}
-          {% if p.price %}
+          {% set sizes = options.get(p.id) %}
+          {% if sizes %}
+          <fieldset class="sizes">
+            <legend>Elige la medida</legend>
+            <div class="size-grid">
+              {% for o in sizes %}
+              <label class="size">
+                <input type="radio" name="medida-{{ p.id }}" value="{{ o.id }}" data-size data-price="{{ o.price|cop }}"{% if loop.first %} checked{% endif %}>
+                <span><b>{{ o.label }}</b><small>{{ o.price|cop }}</small></span>
+                <i class="size-qty" data-size-qty aria-hidden="true" hidden></i>
+              </label>
+              {% endfor %}
+            </div>
+          </fieldset>
+          <div class="leader"><span class="lbl">Precio</span><span class="dots"></span><span class="price"><span data-size-price>{{ sizes[0].price|cop }}</span><small>COP</small></span></div>
+          {% elif p.price %}
           <div class="leader"><span class="lbl">Precio</span><span class="dots"></span>{{ price(p.price) }}</div>
           {% endif %}
           {% if settings.whatsapp %}
@@ -220,6 +235,16 @@
 <script src="{{ url_for('static', filename='js/cart.js', v=asset_v) }}" defer></script>
 {% endif %}
 <script>
+  /* Medidas: el precio de la tarjeta sigue a la medida elegida (también al volver atrás,
+     cuando el navegador recuerda cuál estaba marcada). */
+  document.querySelectorAll('[data-size]').forEach(function (radio) {
+    function show() {
+      var out = radio.closest('.product').querySelector('[data-size-price]');
+      if (radio.checked && out) out.textContent = radio.dataset.price;
+    }
+    radio.addEventListener('change', show);
+    show();
+  });
   document.querySelectorAll('.chip').forEach(function (chip) {
     chip.addEventListener('click', function () {
       var f = chip.dataset.filter;

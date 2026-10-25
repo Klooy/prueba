@@ -21,7 +21,8 @@
       {% endif %}
       <a class="rowlink main" href="{{ url_for('admin_product_form', product_id=p.id) }}">
         <strong>{% if p.featured %}<svg class="icon" style="color:var(--gold)" aria-label="Destacado"><use href="#i-star"/></svg> {% endif %}{{ p.title }}</strong>
-        <small>{{ p.category or 'Sin categoría' }}{% if p.price %} · {{ price_text(p.price) }}{% endif %}</small>
+        {% set size = sizes.get(p.id) %}
+        <small>{{ p.category or 'Sin categoría' }}{% if size %} · {{ size[0] }} {{ 'medida' if size[0] == 1 else 'medidas' }}, desde {{ size[1]|cop }}{% elif p.price %} · {{ price_text(p.price) }}{% endif %}</small>
       </a>
       <form method="post" action="{{ url_for('admin_product_toggle', product_id=p.id) }}" class="inline">
         <input type="hidden" name="csrf" value="{{ csrf_token }}">

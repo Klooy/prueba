@@ -555,6 +555,43 @@ small, .muted { color: var(--dim); }
   -webkit-text-fill-color: var(--gold);
 }
 
+/* medidas de un producto (10 g, 20 g…): se elige una y el precio de la tarjeta la sigue */
+.sizes { border: 0; margin: auto 0 0; padding: 0; min-width: 0; }
+.sizes + .leader { margin-top: 0; }
+.sizes legend {
+  width: 100%; padding: 0; margin: 6px 0 10px; text-align: center;
+  font-family: var(--f-title); font-size: .66rem; letter-spacing: .26em; text-transform: uppercase; color: var(--dimmer);
+}
+.size-grid { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.size { position: relative; flex: 0 1 calc((100% - 16px) / 3); margin: 0; cursor: pointer; }
+.size input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.size span {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+  height: 100%; min-height: 54px; padding: 8px 6px;
+  border-radius: 14px; border: 1px solid var(--line-2);
+  background: rgba(4, 6, 4, .7);
+  transition: border-color .2s, background .2s, box-shadow .2s;
+}
+.size b { font-family: var(--f-title); font-weight: 700; font-size: .95rem; line-height: 1.15; color: var(--papyrus); overflow-wrap: anywhere; }
+.size small { font-size: .74rem; font-weight: 600; color: var(--gold); white-space: nowrap; }
+.size:hover span { border-color: var(--line-jade); }
+.size input:checked + span {
+  border-color: var(--jade);
+  background: radial-gradient(circle at 50% 0%, rgba(52, 210, 122, .26), transparent 70%), rgba(6, 20, 11, .92);
+  box-shadow: 0 0 0 1px var(--jade), 0 0 22px -4px rgba(52, 210, 122, .55);
+}
+.size input:checked + span b { color: var(--jade-hi); }
+.size input:checked + span small { color: var(--gold-hi); }
+.size input:focus-visible + span { outline: 2px solid var(--jade-hi); outline-offset: 3px; }
+.size-qty {                                           /* cuántas de esa medida van en el pedido */
+  position: absolute; top: -7px; right: -5px;
+  min-width: 20px; height: 20px; padding: 0 5px;
+  border-radius: 999px; background: var(--jade); color: #03160a;
+  font: 800 .66rem/20px var(--f-body); font-style: normal; text-align: center;
+  box-shadow: 0 0 0 2px var(--ink);
+  pointer-events: none;
+}
+
 .empty { text-align: center; padding: 44px 18px; color: var(--dim); }
 .empty .icon { width: 64px; height: 64px; color: var(--jade); margin-bottom: 10px; filter: drop-shadow(0 0 14px rgba(52, 210, 122, .5)); }
 
@@ -651,6 +688,28 @@ input.code-input {
 .input-prefix { position: relative; }
 .input-prefix span { position: absolute; left: 15px; top: 50%; transform: translateY(-50%); color: var(--gold); font-weight: 700; pointer-events: none; }
 .input-prefix input { padding-left: 30px; }
+/* panel: filas de medida y precio de un producto */
+.options-group { padding-left: 10px; padding-right: 10px; }
+.options-group .hint { margin: 0 0 12px; }
+/* el precio lleva más ancho que la medida: en celulares angostos se tiene que leer completo */
+.option-head, .option-row { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.35fr) 32px; gap: 6px; align-items: center; }
+.option-head { margin-bottom: 6px; font-size: .74rem; color: var(--dim); }
+.option-row { margin-bottom: 8px; }
+.option-row input[type=text] { padding-left: 11px; padding-right: 9px; }
+.option-row .input-prefix span { left: 11px; }
+.option-row .input-prefix input { padding-left: 24px; }
+.option-x {
+  display: grid; place-items: center;
+  width: 32px; height: 32px; padding: 0;
+  border-radius: 50%; border: 1px solid var(--line-2);
+  background: rgba(8, 12, 8, .6); color: var(--dim);
+  cursor: pointer;
+  transition: border-color .2s, color .2s;
+}
+.option-x:hover { border-color: var(--carnelian); color: var(--carnelian); }
+.option-x .icon { width: 16px; height: 16px; }
+.option-x:focus-visible { outline: 2px solid var(--jade-hi); outline-offset: 2px; }
+input:disabled { opacity: .45; cursor: not-allowed; }
 input[type=file] { width: 100%; color: var(--dim); font-size: .85rem; }
 input[type=file]::file-selector-button {
   font: 600 .8rem var(--f-body); color: var(--papyrus);
