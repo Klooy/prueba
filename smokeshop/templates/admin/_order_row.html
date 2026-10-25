@@ -3,7 +3,7 @@
   <a class="rowlink main" href="{{ url_for('admin_order_detail', order_id=o.id) }}">
     <strong>{{ o.id|pedido }} · {{ o.name or o.customer_name or 'Sin nombre' }}</strong>
     <small class="clip">{{ o.summary }}</small>
-    <small>{{ o.created_at|fecha_hora }}</small>
+    <small>{{ o.created_at|fecha_hora }}{% if o.payment %} · {{ o.payment }}{% endif %}</small>
   </a>
   <span class="order-side">
     <span class="badge st-{{ o.status }}">{{ order_statuses[o.status] }}</span>

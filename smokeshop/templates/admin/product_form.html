@@ -47,46 +47,23 @@
 {% endif %}
 {% endblock %}
 {% block scripts %}
+<script src="{{ url_for('static', filename='js/photo.js', v=asset_v) }}"></script>
 <script>
-  /* Las fotos del celular pesan varios MB: se reducen aquí (máx. 1600 px, JPEG) antes de
-     subirlas. Vercel no recibe envíos de más de 4,5 MB y así el menú carga más rápido. */
+  /* Las fotos del celular se reducen aquí (máx. 1600 px) antes de subirlas. */
   (function () {
     var input = document.getElementById("image");
     var status = document.querySelector("[data-photo-status]");
     var submit = input.form.querySelector('button[type="submit"]');
-    var MAX_SIDE = 1600;
-    if (!window.DataTransfer || !HTMLCanvasElement.prototype.toBlob) return;
-
     input.addEventListener("change", function () {
       var file = input.files[0];
-      if (!file || !/^image\/(jpeg|png|webp)$/.test(file.type)) return;
-      var img = new Image();
-      var url = URL.createObjectURL(file);
       submit.disabled = true;
-      img.onload = function () {
-        URL.revokeObjectURL(url);
-        var scale = Math.min(1, MAX_SIDE / Math.max(img.naturalWidth, img.naturalHeight));
-        if (scale === 1 && file.size < 1.5 * 1024 * 1024) { submit.disabled = false; return; }
-        var canvas = document.createElement("canvas");
-        canvas.width = Math.round(img.naturalWidth * scale);
-        canvas.height = Math.round(img.naturalHeight * scale);
-        var ctx = canvas.getContext("2d");
-        ctx.fillStyle = "#040604";             // fondo para PNG con transparencia
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        canvas.toBlob(function (blob) {
-          submit.disabled = false;
-          if (!blob || blob.size >= file.size) return;
-          var name = file.name.replace(/\.[^.]+$/, "") + ".jpg";
-          var dt = new DataTransfer();
-          dt.items.add(new File([blob], name, { type: "image/jpeg" }));
-          input.files = dt.files;
-          status.textContent = "Foto lista: " + Math.round(file.size / 1024) + " KB → " + Math.round(blob.size / 1024) + " KB.";
-          status.hidden = false;
-        }, "image/jpeg", 0.85);
-      };
-      img.onerror = function () { URL.revokeObjectURL(url); submit.disabled = false; };
-      img.src = url;
+      shrinkPhoto(file, 1600).then(function (small) {
+        submit.disabled = false;
+        if (!small) return;
+        replaceFile(input, small);
+        status.textContent = "Foto lista: " + Math.round(file.size / 1024) + " KB → " + Math.round(small.size / 1024) + " KB.";
+        status.hidden = false;
+      });
     });
   })();
 </script>

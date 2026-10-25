@@ -143,7 +143,43 @@
     </div>
     <p class="cart-pending" data-cart-pending hidden>Algunos productos tienen precio a confirmar por la tienda.</p>
     <div class="cart-fields" data-cart-fields>
-      <div class="field">
+      <fieldset class="cart-group" data-group="payment">
+        <legend class="form-group-title">¿Cómo vas a pagar?</legend>
+        <div class="pay-options">
+          {% for m in payment_methods %}
+          <label class="pay-option"><input type="radio" name="payment" value="{{ m }}" form="cart-form" data-cart-field="payment"><span>{{ m }}</span></label>
+          {% endfor %}
+        </div>
+        <p class="cart-error" data-error="payment" hidden>Elige cómo vas a pagar.</p>
+      </fieldset>
+
+      <fieldset class="cart-group" data-group="location">
+        <legend class="form-group-title">¿Dónde te lo llevamos?</legend>
+        <button type="button" class="btn small ghost block" data-geo>
+          <svg class="icon" aria-hidden="true"><use href="#i-pin"/></svg><span data-geo-label>Compartir mi ubicación</span>
+        </button>
+        <p class="cart-geo" data-geo-status role="status" hidden></p>
+        <div class="field">
+          <label for="cart-address">Dirección y referencias</label>
+          <textarea id="cart-address" name="address" form="cart-form" rows="2" maxlength="200" placeholder="Barrio, calle, torre, apartamento, color de la casa…" data-cart-field="address"></textarea>
+        </div>
+        <p class="cart-error" data-error="location" hidden>Comparte tu ubicación o escribe tu dirección.</p>
+        <small class="hint">Con el GPS el domiciliario llega directo. Solo la usamos para llevar tu pedido.</small>
+      </fieldset>
+
+      <div class="cart-group">
+        <p class="form-group-title">Foto de la entrada <span class="muted">(opcional)</span></p>
+        <label class="btn small ghost block photo-pick">
+          <svg class="icon" aria-hidden="true"><use href="#i-camera"/></svg><span data-photo-label>Agregar foto de la calle o la fachada</span>
+          <input class="sr-only" type="file" name="photo" form="cart-form" accept="image/*" data-photo>
+        </label>
+        <div class="photo-preview" data-photo-preview hidden>
+          <img alt="Foto de la entrada" data-photo-img>
+          <button type="button" class="cart-clear" data-photo-clear>Quitar foto</button>
+        </div>
+      </div>
+
+      <div class="field cart-group">
         <label for="cart-name">Tu nombre <span class="muted">(opcional)</span></label>
         <input id="cart-name" name="name" form="cart-form" type="text" enterkeyhint="next" autocomplete="name" maxlength="60" data-cart-field="name">
       </div>
@@ -153,16 +189,20 @@
       </div>
       <div class="field">
         <label for="cart-notes">Nota para la tienda <span class="muted">(opcional)</span></label>
-        <textarea id="cart-notes" name="note" form="cart-form" rows="2" maxlength="300" placeholder="Paso a recoger a las 6 p. m., dirección de entrega…" data-cart-field="notes"></textarea>
+        <textarea id="cart-notes" name="note" form="cart-form" rows="2" maxlength="300" placeholder="Hora en que te queda bien, con qué billete pagas…" data-cart-field="notes"></textarea>
       </div>
     </div>
   </div>
   <footer class="cart-foot">
     {# El servidor guarda el pedido (historial del panel) y abre el chat con el pedido escrito. #}
-    <form id="cart-form" method="post" action="{{ url_for('place_order') }}" target="_blank" rel="noopener" data-cart-form>
+    <form id="cart-form" method="post" action="{{ url_for('place_order') }}" target="_blank" rel="noopener"
+          enctype="multipart/form-data" novalidate data-cart-form>
       <input type="hidden" name="csrf" value="{{ csrf_token }}">
       <input type="hidden" name="items" data-cart-order>
       <input type="hidden" name="token" data-cart-token>
+      <input type="hidden" name="lat" data-geo-lat>
+      <input type="hidden" name="lng" data-geo-lng>
+      <input type="hidden" name="accuracy" data-geo-acc>
       <button class="btn leaf block" type="submit" data-cart-send>
         <svg class="icon" aria-hidden="true"><use href="#i-chat"/></svg>Pedir por WhatsApp
       </button>
@@ -175,7 +215,10 @@
 {% endif %}
 {% endblock %}
 {% block scripts %}
-{% if products and settings.whatsapp %}<script src="{{ url_for('static', filename='js/cart.js', v=asset_v) }}" defer></script>{% endif %}
+{% if products and settings.whatsapp %}
+<script src="{{ url_for('static', filename='js/photo.js', v=asset_v) }}" defer></script>
+<script src="{{ url_for('static', filename='js/cart.js', v=asset_v) }}" defer></script>
+{% endif %}
 <script>
   document.querySelectorAll('.chip').forEach(function (chip) {
     chip.addEventListener('click', function () {

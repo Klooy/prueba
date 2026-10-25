@@ -4,6 +4,8 @@
  * Precios y nombres salen siempre del menú de hoy (#menu-data), así que si un producto ya no
  * está en el menú se quita del pedido. "Pedir por WhatsApp" envía el pedido al servidor, que lo
  * guarda en el historial del panel con un número y abre el chat de la tienda con el pedido escrito.
+ * Para el domicilio se pide el método de pago y la ubicación (GPS o dirección escrita); la foto de
+ * la entrada es opcional y se reduce antes de subirla.
  */
 (function () {
   "use strict";
@@ -14,7 +16,7 @@
 
   var CART_KEY = "anubis-pedido";
   var TOKEN_KEY = "anubis-pedido-token"; // identifica este carrito: reenviarlo actualiza el mismo pedido
-  var PROFILE_KEY = "anubis-cliente";    // { name, code }; "Mi código" también guarda aquí el código
+  var PROFILE_KEY = "anubis-cliente";    // { name, code, payment, address }; "Mi código" guarda el código
   var MAX_QTY = 99;
 
   var products = JSON.parse(dataEl.textContent || "[]");
@@ -31,6 +33,16 @@
   Array.prototype.forEach.call(drawer.querySelectorAll("[data-cart-field]"), function (el) {
     fields[el.getAttribute("data-cart-field")] = el;
   });
+  var payments = drawer.querySelectorAll('input[name="payment"]');
+  var geoBtn = drawer.querySelector("[data-geo]");
+  var geoStatus = drawer.querySelector("[data-geo-status]");
+  var geo = formEl && {
+    lat: formEl.querySelector("[data-geo-lat]"),
+    lng: formEl.querySelector("[data-geo-lng]"),
+    acc: formEl.querySelector("[data-geo-acc]"),
+  };
+  var photoInput = drawer.querySelector("[data-photo]");
+  var photoBox = drawer.querySelector("[data-photo-preview]");
 
   // ------------------------------------------------------------ almacenamiento
   function read(key) {
@@ -74,6 +86,8 @@
   var profile = read(PROFILE_KEY) || {};
   if (fields.name) fields.name.value = profile.name || "";
   if (fields.code) fields.code.value = profile.code || "";
+  if (fields.address) fields.address.value = profile.address || "";
+  Array.prototype.forEach.call(payments, function (r) { r.checked = r.value === profile.payment; });
 
   // ------------------------------------------------------------ cálculos
   function cop(n) {
@@ -283,6 +297,18 @@
     formEl.addEventListener("submit", function (ev) {
       var s = summary();
       if (!s.count) { ev.preventDefault(); return; }
+      var missing = missingDelivery();
+      showError("payment", missing.indexOf("payment") >= 0);
+      showError("location", missing.indexOf("location") >= 0);
+      if (missing.length) {
+        ev.preventDefault();
+        var group = drawer.querySelector('[data-group="' + missing[0] + '"]');
+        group.scrollIntoView({ block: "center", behavior: "smooth" });
+        var target = missing[0] === "payment" ? payments[0] : (geoBtn && !geoBtn.hidden ? geoBtn : fields.address);
+        if (target) target.focus({ preventScroll: true });
+        if (liveEl) liveEl.textContent = missing[0] === "payment" ? "Falta elegir cómo vas a pagar." : "Falta tu ubicación o tu dirección.";
+        return;
+      }
       formEl.querySelector("[data-cart-order]").value =
         s.lines.map(function (line) { return line.p.id + ":" + line.qty; }).join(",");
       formEl.querySelector("[data-cart-token]").value = cartToken();
@@ -294,11 +320,92 @@
   drawer.addEventListener("input", function (ev) {
     var key = ev.target.getAttribute("data-cart-field");
     if (!key) return;
-    if (key === "name" || key === "code") {
+    if (key === "name" || key === "code" || key === "payment" || key === "address") {
       profile[key] = key === "code" ? ev.target.value.trim().toUpperCase() : ev.target.value.trim();
       write(PROFILE_KEY, profile);
     }
+    if (key === "payment") showError("payment", false);
+    if (key === "address" && !missingDelivery().length) showError("location", false);
   });
+
+  // ------------------------------------------------------------ entrega
+  function missingDelivery() {
+    var missing = [];
+    if (payments.length && !drawer.querySelector('input[name="payment"]:checked')) missing.push("payment");
+    if (geo && !geo.lat.value && (!fields.address || fields.address.value.trim().length < 6)) missing.push("location");
+    return missing;
+  }
+
+  function showError(kind, on) {
+    var box = drawer.querySelector('[data-error="' + kind + '"]');
+    if (box) box.hidden = !on;
+  }
+
+  function geoMessage(text, isError, mapUrl) {
+    geoStatus.textContent = text;
+    geoStatus.classList.toggle("is-error", isError);
+    if (mapUrl) {
+      var link = el("a", "", "Ver en el mapa");
+      link.href = mapUrl;
+      link.target = "_blank";
+      link.rel = "noopener";
+      geoStatus.appendChild(document.createTextNode(" · "));
+      geoStatus.appendChild(link);
+    }
+    geoStatus.hidden = false;
+  }
+
+  if (geoBtn) {
+    var geoLabel = geoBtn.querySelector("[data-geo-label]");
+    if (!navigator.geolocation || !window.isSecureContext) geoBtn.hidden = true;   // queda la dirección
+    geoBtn.addEventListener("click", function () {
+      geoBtn.disabled = true;
+      geoLabel.textContent = "Buscando tu ubicación…";
+      navigator.geolocation.getCurrentPosition(function (pos) {
+        geo.lat.value = pos.coords.latitude.toFixed(6);
+        geo.lng.value = pos.coords.longitude.toFixed(6);
+        geo.acc.value = String(Math.round(pos.coords.accuracy || 0));
+        geoBtn.disabled = false;
+        geoLabel.textContent = "Actualizar mi ubicación";
+        geoMessage("✓ Ubicación lista (±" + geo.acc.value + " m).", false,
+          "https://www.google.com/maps/search/?api=1&query=" + geo.lat.value + "," + geo.lng.value);
+        showError("location", false);
+      }, function (err) {
+        geoBtn.disabled = false;
+        geoLabel.textContent = "Intentar de nuevo";
+        geoMessage(err.code === 1
+          ? "No diste permiso para usar tu ubicación. Escribe tu dirección abajo o permítela en tu navegador."
+          : err.code === 3
+            ? "Tu celular tardó mucho en encontrar la ubicación. Intenta de nuevo o escribe tu dirección."
+            : "No pudimos encontrar tu ubicación. Escribe tu dirección abajo.", true);
+      }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 });
+    });
+  }
+
+  var photoUrl = null;
+  function showPhoto(file) {
+    if (photoUrl) URL.revokeObjectURL(photoUrl);
+    photoUrl = file ? URL.createObjectURL(file) : null;
+    photoBox.querySelector("[data-photo-img]").src = photoUrl || "";
+    photoBox.hidden = !file;
+    drawer.querySelector("[data-photo-label]").textContent = file ? "Cambiar foto" : "Agregar foto de la calle o la fachada";
+  }
+  if (photoInput) {
+    photoInput.addEventListener("change", function () {
+      var file = photoInput.files[0];
+      if (!file) return showPhoto(null);
+      if (sendBtn) sendBtn.disabled = true;      // mientras se reduce
+      (window.shrinkPhoto ? window.shrinkPhoto(file, 1600) : Promise.resolve(null)).then(function (small) {
+        if (small) window.replaceFile(photoInput, small);
+        showPhoto(photoInput.files[0]);
+        render();
+      });
+    });
+    drawer.querySelector("[data-photo-clear]").addEventListener("click", function () {
+      photoInput.value = "";
+      showPhoto(null);
+    });
+  }
 
   document.addEventListener("keydown", function (ev) {
     if (!isOpen()) return;

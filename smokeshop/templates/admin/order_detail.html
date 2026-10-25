@@ -53,6 +53,22 @@
       <p class="muted">No tiene descuentos pendientes.</p>
       {% endif %}
     {% endif %}
+    {% if order.payment or order.location or order.address or order.photo %}
+    <p class="form-group-title mt">Entrega</p>
+    <ul class="list delivery">
+      {% if order.payment %}<li><span class="main"><strong>Pago</strong><small>{{ order.payment }}</small></span></li>{% endif %}
+      {% if order.address %}<li><span class="main"><strong>Dirección</strong><small>{{ order.address }}</small></span></li>{% endif %}
+      {% if order.location %}
+      <li>
+        <span class="main"><strong>Ubicación GPS</strong><small>{{ order.location }}</small></span>
+        <a class="btn small leaf" href="{{ maps_url(order.location) }}" target="_blank" rel="noopener"><svg class="icon" aria-hidden="true"><use href="#i-pin"/></svg>Abrir mapa</a>
+      </li>
+      {% endif %}
+    </ul>
+    {% if order.photo %}
+    <a href="{{ image_url(order.photo) }}" target="_blank" rel="noopener"><img class="order-photo" src="{{ image_url(order.photo) }}" alt="Foto de la entrada que envió el cliente"></a>
+    {% endif %}
+    {% endif %}
     {% if order.note %}<p class="order-note"><strong>Nota:</strong> {{ order.note }}</p>{% endif %}
     {% if order.customer_phone %}
     <a class="btn block ghost mt" href="https://wa.me/{{ order.customer_phone|wa }}" target="_blank" rel="noopener">
