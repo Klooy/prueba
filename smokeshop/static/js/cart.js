@@ -1,8 +1,9 @@
 /* Carrito del menú del día.
  *
- * El pedido vive en el navegador del cliente (localStorage): { "<id de producto>": cantidad }.
- * Precios y nombres salen siempre del menú de hoy (#menu-data), así que si un producto ya no
- * está en el menú se quita del pedido. "Pedir por WhatsApp" envía el pedido al servidor, que lo
+ * El pedido vive en el navegador del cliente (localStorage): { "<id>": cantidad }, y en los
+ * productos con medidas (10 g, 20 g…) una línea por medida: { "<id>-<id de la medida>": cantidad }.
+ * Precios y nombres salen siempre del menú de hoy (#menu-data), así que si un producto (o una
+ * medida) ya no está en el menú se quita del pedido. "Pedir por WhatsApp" envía el pedido al servidor, que lo
  * guarda en el historial del panel con un número y abre el chat de la tienda con el pedido escrito.
  * Para el domicilio se pide el método de pago y la ubicación (GPS o dirección escrita); la foto de
  * la entrada es opcional y se reduce antes de subirla.
@@ -20,8 +21,16 @@
   var MAX_QTY = 99;
 
   var products = JSON.parse(dataEl.textContent || "[]");
-  var byId = {};
-  products.forEach(function (p) { byId[String(p.id)] = p; });
+  // Lo que se puede pedir, en el orden del menú: cada producto, o cada medida de un producto con medidas.
+  var entries = [];
+  var byKey = {};
+  products.forEach(function (p) {
+    (p.options && p.options.length ? p.options : [null]).forEach(function (o) {
+      var entry = { key: o ? p.id + "-" + o.id : String(p.id), p: p, o: o, price: o ? o.price : p.price };
+      entries.push(entry);
+      byKey[entry.key] = entry;
+    });
+  });
 
   var fab = document.getElementById("cart-open");
   var overlay = document.querySelector(".cart-overlay");
@@ -58,10 +67,10 @@
   var cart = {};
   var dropped = 0;
   var saved = read(CART_KEY) || {};
-  Object.keys(saved).forEach(function (id) {
-    var qty = parseInt(saved[id], 10);
+  Object.keys(saved).forEach(function (key) {
+    var qty = parseInt(saved[key], 10);
     if (!(qty > 0)) return;
-    if (byId[id]) cart[id] = Math.min(qty, MAX_QTY);
+    if (byKey[key]) cart[key] = Math.min(qty, MAX_QTY);
     else dropped += 1;
   });
   if (dropped) save();
@@ -96,36 +105,50 @@
 
   function summary() {
     var lines = [], count = 0, sum = 0, pending = false;
-    products.forEach(function (p) {
-      var qty = cart[String(p.id)];
+    entries.forEach(function (e) {
+      var qty = cart[e.key];
       if (!qty) return;
-      var total = p.price === null ? null : p.price * qty;
-      lines.push({ p: p, qty: qty, total: total });
+      var total = e.price === null ? null : e.price * qty;
+      lines.push({ e: e, qty: qty, total: total });
       count += qty;
       if (total === null) pending = true; else sum += total;
     });
     return { lines: lines, count: count, sum: sum, pending: pending };
   }
 
+  function entryName(e) {
+    return e.o ? e.p.title + " (" + e.o.label + ")" : e.p.title;
+  }
+
   function unitText(line) {
-    if (line.p.price !== null) return cop(line.p.price) + " c/u";
-    return line.p.label || "Precio a confirmar";
+    if (line.e.o) return line.e.o.label + " · " + cop(line.e.price) + " c/u";
+    if (line.e.price !== null) return cop(line.e.price) + " c/u";
+    return line.e.p.label || "Precio a confirmar";
+  }
+
+  // En la tarjeta, "Agregar" y − / + van con el producto o, si tiene medidas, con la medida marcada.
+  function cardKey(box) {
+    var id = box.getAttribute("data-product");
+    var sizes = box.closest(".product").querySelectorAll("[data-size]");
+    if (!sizes.length) return id;
+    var chosen = box.closest(".product").querySelector("[data-size]:checked") || sizes[0];
+    return id + "-" + chosen.value;
   }
 
   // ------------------------------------------------------------ cambios
-  function setQty(id, qty, announce) {
-    id = String(id);
-    var p = byId[id];
-    if (!p) return;
+  function setQty(key, qty, announce) {
+    var e = byKey[key];
+    if (!e) return;
     qty = Math.max(0, Math.min(MAX_QTY, qty));
-    var before = cart[id] || 0;
-    if (qty) cart[id] = qty; else delete cart[id];
+    var before = cart[key] || 0;
+    if (qty) cart[key] = qty; else delete cart[key];
     save();
     render();
     if (announce && liveEl) {
+      var name = entryName(e);
       liveEl.textContent = qty > before
-        ? "Agregado: " + p.title + ". Llevas " + qty + "."
-        : (qty ? "Quitaste uno: " + p.title + ". Llevas " + qty + "." : "Quitaste " + p.title + " del pedido.");
+        ? "Agregado: " + name + ". Llevas " + qty + "."
+        : (qty ? "Quitaste uno: " + name + ". Llevas " + qty + "." : "Quitaste " + name + " del pedido.");
     }
     if (qty > before && fab) {
       fab.classList.remove("bump");
@@ -164,15 +187,16 @@
   function renderItems(s) {
     itemsEl.textContent = "";
     s.lines.forEach(function (line) {
+      var name = entryName(line.e);
       var li = el("li", "cart-item");
-      li.setAttribute("data-id", String(line.p.id));
+      li.setAttribute("data-id", line.e.key);
       var main = el("div", "ci-main");
-      main.appendChild(el("strong", "", line.p.title));
+      main.appendChild(el("strong", "", line.e.p.title));
       main.appendChild(el("small", "", unitText(line)));
       var step = el("div", "stepper compact");
-      step.appendChild(stepButton("dec", line.qty > 1 ? "Quitar uno: " + line.p.title : "Quitar del pedido: " + line.p.title));
+      step.appendChild(stepButton("dec", line.qty > 1 ? "Quitar uno: " + name : "Quitar del pedido: " + name));
       step.appendChild(el("span", "qty", String(line.qty)));
-      step.appendChild(stepButton("inc", "Agregar otro: " + line.p.title));
+      step.appendChild(stepButton("inc", "Agregar otro: " + name));
       li.appendChild(main);
       li.appendChild(step);
       li.appendChild(line.total === null
@@ -187,11 +211,28 @@
     var empty = s.count === 0;
 
     Array.prototype.forEach.call(document.querySelectorAll(".add[data-product]"), function (box) {
-      var qty = cart[box.getAttribute("data-product")] || 0;
+      var key = cardKey(box);
+      var qty = cart[key] || 0;
+      var any = qty > 0;
+      // Cada medida muestra cuántas lleva en el pedido.
+      Array.prototype.forEach.call(box.closest(".product").querySelectorAll("[data-size]"), function (radio) {
+        var e = byKey[box.getAttribute("data-product") + "-" + radio.value];
+        var n = e ? cart[e.key] || 0 : 0;
+        var badge = radio.parentNode.querySelector("[data-size-qty]");
+        badge.textContent = String(n);
+        badge.hidden = !n;
+        if (n) radio.setAttribute("aria-label", e.o.label + ", " + cop(e.price) + ", " + n + " en tu pedido");
+        else radio.removeAttribute("aria-label");
+        if (n) any = true;
+      });
       box.querySelector("[data-add]").hidden = qty > 0;
       box.querySelector("[data-stepper]").hidden = qty === 0;
       box.querySelector("[data-qty]").textContent = String(qty);
-      box.classList.toggle("in-cart", qty > 0);
+      box.classList.toggle("in-cart", any);
+      if (byKey[key] && byKey[key].o) {
+        box.querySelector("[data-dec]").setAttribute("aria-label", "Quitar uno: " + entryName(byKey[key]));
+        box.querySelector("[data-inc]").setAttribute("aria-label", "Agregar otro: " + entryName(byKey[key]));
+      }
     });
 
     if (fab) {
@@ -215,8 +256,8 @@
     note.hidden = !dropped;
     if (dropped) {
       note.textContent = dropped === 1
-        ? "Un producto de tu pedido anterior ya no está en el menú de hoy y se quitó."
-        : dropped + " productos de tu pedido anterior ya no están en el menú de hoy y se quitaron.";
+        ? "Un producto de tu pedido anterior cambió o ya no está en el menú de hoy, y se quitó."
+        : dropped + " productos de tu pedido anterior cambiaron o ya no están en el menú de hoy, y se quitaron.";
     }
     if (sendBtn) sendBtn.disabled = empty;
   }
@@ -253,13 +294,12 @@
 
   // Tras redibujar, el foco pasa al botón equivalente para no perderse (teclado / lector de pantalla).
   // Las filas del panel se rehacen en cada cambio, por eso se dice de antemano dónde fue el clic.
-  function keepFocus(inDrawer, id, kind) {
+  function keepFocus(inDrawer, key, kind, box) {
     var next = null;
     if (inDrawer) {
-      next = itemsEl.querySelector('[data-id="' + id + '"] [data-' + kind + "]") || drawer.querySelector(".cart-x");
+      next = itemsEl.querySelector('[data-id="' + key + '"] [data-' + kind + "]") || drawer.querySelector(".cart-x");
     } else {
-      var box = document.querySelector('.add[data-product="' + id + '"]');
-      next = cart[id] ? box.querySelector("[data-stepper] [data-" + kind + "]") : box.querySelector("[data-add]");
+      next = cart[key] ? box.querySelector("[data-stepper] [data-" + kind + "]") : box.querySelector("[data-add]");
     }
     if (next && next !== document.activeElement) next.focus();
   }
@@ -269,13 +309,13 @@
     var t = ev.target.closest ? ev.target.closest("button, a, .cart-overlay") : null;
     if (!t) return;
     var holder = t.closest("[data-product], [data-id]");
-    var id = holder ? (holder.getAttribute("data-product") || holder.getAttribute("data-id")) : null;
+    var key = holder ? (holder.hasAttribute("data-product") ? cardKey(holder) : holder.getAttribute("data-id")) : null;
 
-    if ((t.hasAttribute("data-add") || t.hasAttribute("data-inc") || t.hasAttribute("data-dec")) && id) {
+    if ((t.hasAttribute("data-add") || t.hasAttribute("data-inc") || t.hasAttribute("data-dec")) && key) {
       var kind = t.hasAttribute("data-dec") ? "dec" : "inc";
       var inDrawer = drawer.contains(t);
-      setQty(id, (cart[id] || 0) + (kind === "dec" ? -1 : 1), true);
-      keepFocus(inDrawer, id, kind);
+      setQty(key, (cart[key] || 0) + (kind === "dec" ? -1 : 1), true);
+      keepFocus(inDrawer, key, kind, holder);
     } else if (t === fab) {
       open();
     } else if (t.hasAttribute("data-cart-close")) {
@@ -292,7 +332,13 @@
     }
   });
 
-  // Al enviar: los productos van como "id:cantidad,…"; nombre, código y nota son campos del formulario.
+  // Otra medida marcada: el − / + de la tarjeta pasa a ser el de esa medida.
+  document.addEventListener("change", function (ev) {
+    if (ev.target.hasAttribute && ev.target.hasAttribute("data-size")) render();
+  });
+
+  // Al enviar: los productos van como "id:cantidad,…" (con medida, "id-medida:cantidad"); nombre,
+  // código y nota son campos del formulario.
   if (formEl) {
     formEl.addEventListener("submit", function (ev) {
       var s = summary();
@@ -310,7 +356,7 @@
         return;
       }
       formEl.querySelector("[data-cart-order]").value =
-        s.lines.map(function (line) { return line.p.id + ":" + line.qty; }).join(",");
+        s.lines.map(function (line) { return line.e.key + ":" + line.qty; }).join(",");
       formEl.querySelector("[data-cart-token]").value = cartToken();
       var hint = drawer.querySelector("[data-cart-sent]");
       if (hint) hint.hidden = false;

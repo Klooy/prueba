@@ -18,7 +18,7 @@
       {% for line in order.lines %}
       <li>
         <span class="main">
-          <strong>{{ line.qty }} × {{ line.title }}</strong>
+          <strong>{{ line.qty }} × {{ line|producto }}</strong>
           <small>{% if line.price is not none %}{{ line.price|cop }} c/u{% else %}{{ line.label or 'Precio a confirmar' }}{% endif %}</small>
         </span>
         <b class="order-total{{ ' pending' if line.price is none }}">{{ (line.price * line.qty)|cop if line.price is not none else 'Por confirmar' }}</b>

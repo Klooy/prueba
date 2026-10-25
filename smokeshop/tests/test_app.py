@@ -244,6 +244,7 @@ def test_demo_seed_and_admin_password_env(tmp_path, monkeypatch):
     html = client.get("/").get_data(as_text=True)
     from app import DEMO_PRODUCTS
     assert html.count('<article class="product') == len(DEMO_PRODUCTS)
+    assert "<b>Paquete x6</b><small>$24.000</small>" in html             # un producto de ejemplo con medidas
     assert post(client, "/admin/login", {"password": "desdeenv"}).status_code == 302
     assert "Ana Ramírez" in client.get("/admin").get_data(as_text=True)
 
@@ -295,6 +296,8 @@ def test_money_helpers():
     assert parse_cop("$ 25,000 COP") == 25000
     assert parse_cop("") == 0
     assert parse_cop("diez") is None
+    assert parse_cop("50k") == 50000 and parse_cop("90 mil") == 90000 and parse_cop("$250K") == 250000
+    assert parse_cop("1.5k") is None                           # ambiguo: mejor pedir que lo escriba completo
     assert format_cop(15000) == "$15.000"
     assert format_cop(None) is None
 
@@ -855,6 +858,8 @@ def test_postgres_database_from_before_gets_new_columns(tmp_path):
     with app.app_context():
         assert get_db().execute("SELECT origin FROM customers WHERE code = 'ANK-AAAAA'").fetchone()[0] == "tienda"
         assert get_db().execute("SELECT payment, address, location, photo FROM orders").fetchall() == []
+        assert get_db().execute("SELECT relrowsecurity FROM pg_class WHERE relname = 'product_options'"
+                                ).fetchone()[0] is True                # tabla nueva, cerrada a la API pública
     create_app({"DATABASE": str(tmp_path / "x.db"), "UPLOAD_FOLDER": str(tmp_path / "u"),
                 "SECRET_KEY": "t", "DATABASE_URL": PG_URL})          # segundo arranque: no vuelve a alterar
 
@@ -966,3 +971,100 @@ def test_old_sqlite_orders_table_gets_delivery_columns(tmp_path):
     save_settings(client, "3001234567")
     add_product(client, "Bong", "240000")
     assert "Pago: Efectivo" in wa_text(place_order(client, "1:1"))
+
+
+def add_sized_product(client, title, sizes, **extra):
+    """Producto con medidas: sizes = [("10 g", "50000"), …], como las filas del formulario."""
+    return post(client, "/admin/menu/nuevo", {
+        "title": title, "active": "1", "option_id": [""] * len(sizes),
+        "option_label": [label for label, _ in sizes], "option_price": [price for _, price in sizes], **extra})
+
+
+def options_of(app, product_id=1):
+    from app import get_db
+    with app.app_context():
+        return [tuple(r) for r in get_db().execute(
+            "SELECT id, label, price, position FROM product_options WHERE product_id = ? ORDER BY position",
+            (product_id,)).fetchall()]
+
+
+def test_product_sizes_in_panel_and_menu(app, client):
+    login(client)
+    save_settings(client, "3001234567")
+    resp = add_sized_product(client, "Premium Tangieland", [("10 g", "50k"), ("20 g", "90.000"), ("", ""),
+                                                            ("30 g", "$120,000")], price="999", category="Herbal")
+    assert resp.status_code == 302
+    assert options_of(app) == [(1, "10 g", 50000, 0), (2, "20 g", 90000, 1), (3, "30 g", 120000, 2)]
+    from app import get_db
+    with app.app_context():                               # el precio general queda en el más barato
+        assert get_db().execute("SELECT price FROM products WHERE id = 1").fetchone()[0] == "50000"
+    assert "Herbal · 3 medidas, desde $50.000" in client.get("/admin/menu").get_data(as_text=True)
+
+    html = client.get("/").get_data(as_text=True)
+    assert "Elige la medida" in html and html.count('type="radio" name="medida-1"') == 3
+    assert "<b>20 g</b><small>$90.000</small>" in html and 'data-price="$90.000"' in html
+    assert html.count("checked") >= 1 and "<span data-size-price>$50.000</span>" in html   # marcada la primera
+    assert html.count("data-add>") == 1                   # un solo botón: va con la medida marcada
+    assert menu_data(html)["Premium Tangieland"]["options"] == [
+        {"id": 1, "label": "10 g", "price": 50000}, {"id": 2, "label": "20 g", "price": 90000},
+        {"id": 3, "label": "30 g", "price": 120000}]
+
+    form = client.get("/admin/menu/1/editar").get_data(as_text=True)
+    assert 'value="10 g"' in form and 'value="90000"' in form
+    assert form.count('name="option_label" value=') == 4  # las tres y una fila vacía para agregar otra
+
+    # Editar: cambia un precio, quita una medida y agrega otra; las que quedan conservan su id.
+    edit = {"title": "Premium Tangieland", "active": "1", "category": "Herbal"}
+    post(client, "/admin/menu/1/editar", {**edit, "option_id": ["2", "3", ""],
+                                          "option_label": ["20 g", "30 g", "50 g"],
+                                          "option_price": ["85000", "120000", "160 mil"]})
+    assert options_of(app) == [(2, "20 g", 85000, 0), (3, "30 g", 120000, 1), (4, "50 g", 160000, 2)]
+
+    for rows, message in [
+        ([("10 g", "")], "Ponle a «10 g» un precio en pesos"),
+        ([("10 g", "diez")], "Ponle a «10 g» un precio en pesos"),
+        ([("", "50000")], "Escribe la medida que cuesta 50000"),
+        ([("10 g", "50000"), ("10 G", "60000")], "La medida «10 G» está repetida"),
+        ([("1 kg", "5000000000")], "ceros de más"),
+        ([(f"{n} g", "1000") for n in range(1, 14)], "hasta 12 medidas"),
+    ]:
+        html = post(client, "/admin/menu/1/editar", {
+            **edit, "option_id": [""] * len(rows), "option_label": [label for label, _ in rows],
+            "option_price": [price for _, price in rows]}).get_data(as_text=True)
+        assert message in html, message
+        assert f'value="{rows[0][0]}"' in html and f'value="{rows[0][1]}"' in html   # lo escrito sigue ahí
+    assert len(options_of(app)) == 3                      # nada de eso se guardó
+
+    # Sin medidas vuelve a usar el precio general.
+    post(client, "/admin/menu/1/editar", {**edit, "price": "70.000", "option_id": "", "option_label": "",
+                                          "option_price": ""})
+    assert options_of(app) == []
+    assert "<span class=\"price\">$70.000<small>COP</small></span>" in client.get("/").get_data(as_text=True)
+
+
+def test_order_with_sizes(app, client):
+    login(client)
+    save_settings(client, "3001234567")
+    add_sized_product(client, "Premium Tangieland", [("10 g", "50000"), ("20 g", "90000")])   # medidas 1 y 2
+    add_product(client, "Bong", "240000")
+    add_sized_product(client, "Otra flor", [("5 g", "30000")])                              # medida 3
+    resp = place_order(client, "1-2:1,1-1:2,1:5,1-3:1,2:1,2-1:1,3-3:1,1-:1,1-x:1,-2:1")
+    text = wa_text(resp)
+    assert "• 1 × Otra flor (5 g) — $30.000" in text and "• 1 × Bong — $240.000" in text
+    assert "• 2 × Premium Tangieland (10 g) — $100.000\n• 1 × Premium Tangieland (20 g) — $90.000" in text
+    assert "Total: $460.000 COP" in text
+    assert text.count("•") == 4          # sin medida, con la medida de otro producto o mal escrito: no cuenta
+
+    (order,) = orders_of(app)
+    assert order["total"] == 460000 and order["pending"] == 0
+    lines = [(line["title"], line.get("option"), line["qty"], line["price"]) for line in json.loads(order["items"])]
+    assert lines == [("Otra flor", "5 g", 1, 30000), ("Bong", None, 1, 240000),
+                     ("Premium Tangieland", "10 g", 2, 50000), ("Premium Tangieland", "20 g", 1, 90000)]
+    assert "2 × Premium Tangieland (10 g)" in client.get("/admin/pedidos/1").get_data(as_text=True)
+    assert "2 × Premium Tangieland (10 g)" in client.get("/admin/pedidos").get_data(as_text=True)
+
+    html = post(client, "/pedido", {"items": "1:2", **DELIVERY}, follow_redirects=True).get_data(as_text=True)
+    assert "Tu pedido está vacío" in html                 # producto con medidas pedido sin medida
+
+    post(client, "/admin/menu/1/borrar")                  # borrar el producto borra sus medidas
+    assert options_of(app) == [] and len(options_of(app, 3)) == 1

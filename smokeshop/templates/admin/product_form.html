@@ -1,5 +1,13 @@
 {% extends "admin/_layout.html" %}
 {% block section %}menu{% endblock %}
+{% macro option_row(o) %}
+    <div class="option-row" data-option-row>
+      <input type="hidden" name="option_id" value="{{ o.id or '' }}">
+      <input type="text" name="option_label" value="{{ o.label }}" maxlength="40" placeholder="10 g" aria-label="Medida">
+      <div class="input-prefix"><span>$</span><input type="text" name="option_price" inputmode="numeric" value="{{ o.price }}" placeholder="50000" aria-label="Precio de esta medida"></div>
+      <button type="button" class="option-x" data-option-remove aria-label="Quitar esta medida"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+    </div>
+{%- endmacro %}
 {% block title %}{{ 'Editar' if editing else 'Nueva' }} novedad · {{ settings.store_name }}{% endblock %}
 {% block content %}
 <div class="page-head"><h1>{{ 'Editar producto' if editing else 'Nueva novedad' }}</h1></div>
@@ -13,12 +21,23 @@
     <div class="field">
       <label for="price">Precio <span class="muted">(COP)</span></label>
       <div class="input-prefix"><span>$</span><input id="price" name="price" type="text" inputmode="numeric" value="{{ product.price }}" placeholder="45000"></div>
+      <small class="hint" data-price-note{% if not options %} hidden{% endif %}>Con medidas, cada una lleva su precio.</small>
     </div>
     <div class="field">
       <label for="category">Categoría</label>
       <input id="category" name="category" type="text" value="{{ product.category }}" list="cats" placeholder="Pipas, Papeles…">
       <datalist id="cats">{% for c in categories or [] %}<option value="{{ c }}">{% endfor %}</datalist>
     </div>
+  </div>
+  <div class="form-group options-group" role="group" aria-labelledby="options-title">
+    <p class="form-group-title" id="options-title">Medidas y precios <span class="muted">(opcional)</span></p>
+    <p class="hint">¿Lo vendes por gramos o en varios tamaños? Escribe cada medida con su precio, por ejemplo <strong>10 g → 50.000</strong> y <strong>20 g → 90.000</strong>. El cliente escoge la que quiere.</p>
+    <div class="option-head" aria-hidden="true"><span>Medida</span><span>Precio</span></div>
+    <div data-option-rows>
+    {%- for o in options or [] %}{{ option_row(o) }}{% endfor %}
+    {{ option_row({'id': '', 'label': '', 'price': ''}) }}
+    </div>
+    <button type="button" class="btn small ghost" data-option-add hidden><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Agregar otra medida</button>
   </div>
   <div class="field">
     <label for="description">Descripción</label>
@@ -65,6 +84,46 @@
         status.hidden = false;
       });
     });
+  })();
+
+  /* Medidas: agregar y quitar filas. Con alguna medida escrita, el precio general no se usa. */
+  (function () {
+    var rows = document.querySelector("[data-option-rows]");
+    var add = document.querySelector("[data-option-add]");
+    var price = document.getElementById("price");
+    var note = document.querySelector("[data-price-note]");
+    function sync() {
+      var used = Array.prototype.some.call(rows.querySelectorAll('input[type="text"]'), function (input) {
+        return input.value.trim() !== "";
+      });
+      price.disabled = used;
+      note.hidden = !used;
+    }
+    function clear(row) {
+      Array.prototype.forEach.call(row.querySelectorAll("input"), function (input) { input.value = ""; });
+    }
+    add.hidden = false;
+    add.addEventListener("click", function () {
+      var row = rows.lastElementChild.cloneNode(true);
+      clear(row);
+      rows.appendChild(row);
+      row.querySelector('input[name="option_label"]').focus();
+    });
+    rows.addEventListener("click", function (ev) {
+      var button = ev.target.closest("[data-option-remove]");
+      if (!button) return;
+      var row = button.closest("[data-option-row]");
+      if (rows.children.length > 1) {
+        (row.nextElementSibling || row.previousElementSibling).querySelector('input[name="option_label"]').focus();
+        row.remove();
+      } else {
+        clear(row);
+        row.querySelector('input[name="option_label"]').focus();
+      }
+      sync();
+    });
+    rows.addEventListener("input", sync);
+    sync();
   })();
 </script>
 {% endblock %}
