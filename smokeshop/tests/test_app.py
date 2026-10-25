@@ -1089,3 +1089,98 @@ def test_order_with_sizes(app, client):
 
     post(client, "/admin/menu/1/borrar")                  # borrar el producto borra sus medidas
     assert options_of(app) == [] and len(options_of(app, 3)) == 1
+
+
+def photo_bytes(size=(900, 1200), fmt="JPEG", mode="RGB", noise=False):
+    """Una foto de verdad (Pillow) para probar la versión liviana que se comparte."""
+    from PIL import Image
+    if noise:                                             # ruido: comprime mal, como una foto con mucho detalle
+        img = Image.frombytes("RGB", size, os.urandom(size[0] * size[1] * 3))
+    else:
+        img = Image.new(mode, size, (30, 160, 90, 128) if mode == "RGBA" else (30, 160, 90))
+    out = io.BytesIO()
+    img.save(out, fmt, **({"quality": 95} if fmt == "JPEG" else {}))
+    return out.getvalue()
+
+
+def meta(html, prop):
+    m = re.search(rf'<meta property="{prop}" content="([^"]*)">', html)
+    return m and m.group(1)
+
+
+def test_product_share_page_has_preview_with_photo(app, client):
+    from PIL import Image
+    login(client)
+    save_settings(client, "3001234567")
+    post(client, "/admin/menu/nuevo", {
+        "title": "Premium Tangieland", "active": "1", "description": "Cítrica y suave",
+        "option_id": ["", ""], "option_label": ["10 g", "20 g"], "option_price": ["50000", "90000"],
+        "image": (io.BytesIO(photo_bytes()), "flor.jpg")}, content_type="multipart/form-data")
+    add_product(client, "Bong Osiris", "240.000")                        # sin foto
+    add_product(client, "Oculto", "1000", active="")
+
+    html = client.get("/p/1").get_data(as_text=True)
+    assert meta(html, "og:title") == "Premium Tangieland — desde $50.000"
+    assert meta(html, "og:description") == "10 g $50.000 · 20 g $90.000 · Cítrica y suave"
+    assert meta(html, "og:url") == "http://localhost/p/1"
+    image = meta(html, "og:image")
+    assert re.fullmatch(r"http://localhost/p/1/[0-9a-f]{32}\.jpg", image)
+    assert "<title>Premium Tangieland · Templo</title>" in html
+    assert 'id="producto-1"' in html and "shared" in html.split('id="producto-1"')[0].rsplit("<article", 1)[1]
+    assert 'document.getElementById("producto-1")' in html               # baja hasta el producto
+
+    resp = client.get(image.replace("http://localhost", ""))
+    assert resp.status_code == 200 and resp.mimetype == "image/jpeg"
+    assert len(resp.data) <= 250_000 and "s-maxage" in resp.headers["Cache-Control"]
+    assert Image.open(io.BytesIO(resp.data)).size == (810, 1080)          # misma proporción, 1080 de alto
+    assert client.get("/p/1/viejo.jpg").headers["Location"].endswith(image.replace("http://localhost", ""))
+
+    bong = client.get("/p/2").get_data(as_text=True)                    # sin foto: la imagen de la tienda
+    assert meta(bong, "og:title") == "Bong Osiris — $240.000"
+    assert meta(bong, "og:image") == "http://localhost/static/img/anubis.jpg"
+    assert client.get("/p/2/x.jpg").status_code == 404
+    resp = client.get("/p/3", follow_redirects=True)                      # oculto: al menú, con aviso
+    assert "ya no está en el menú de hoy" in resp.get_data(as_text=True)
+    assert client.get("/p/99").status_code == 302
+
+    menu = client.get("/").get_data(as_text=True)
+    assert meta(menu, "og:title") == "Templo" and meta(menu, "og:image") == "http://localhost/static/img/anubis.jpg"
+    assert menu.count("data-share ") == 2 and 'data-share-url="http://localhost/p/1"' in menu
+    assert "Premium Tangieland — desde $50.000 en Templo. Pídelo aquí:" in menu
+    assert "https://wa.me/?text=Premium%20Tangieland%20%E2%80%94%20desde%20%2450.000" in menu
+    assert "js/share.js" in menu
+    panel = client.get("/admin/menu").get_data(as_text=True)
+    assert panel.count("data-share ") == 2 and 'aria-label="Compartir Oculto"' not in panel   # solo lo visible
+
+
+def test_share_photo_stays_light(tmp_path):
+    """Fotos pesadas o con transparencia salen como JPEG de menos de 250 KB, sin pasar de 1080 px."""
+    from PIL import Image
+    from app import share_image_bytes
+    big = share_image_bytes(photo_bytes((3000, 2000), noise=True))
+    assert len(big) <= 250_000 and max(Image.open(io.BytesIO(big)).size) <= 1080
+    clear = Image.open(io.BytesIO(share_image_bytes(photo_bytes((400, 400), fmt="PNG", mode="RGBA")))).convert("RGB")
+    assert clear.mode == "RGB" and clear.size == (400, 400)              # no agranda las fotos pequeñas
+
+
+def test_share_photo_from_supabase(tmp_path, monkeypatch):
+    class Storage(FakeStorage):
+        def __init__(self):
+            super().__init__()
+            self.files = {}
+
+        def __call__(self, req, timeout=None):
+            if isinstance(req, str):                                      # leer la foto pública
+                return io.BytesIO(self.files[req.rsplit("/", 1)[1]])
+            self.files[req.full_url.rsplit("/", 1)[1]] = req.data
+            return super().__call__(req, timeout)
+
+    storage = Storage()
+    client = storage_app(tmp_path, monkeypatch, storage).test_client()
+    login(client)
+    post(client, "/admin/menu/nuevo", {"title": "Con foto", "active": "1",
+                                       "image": (io.BytesIO(photo_bytes()), "flor.jpg")},
+         content_type="multipart/form-data")
+    image = meta(client.get("/p/1").get_data(as_text=True), "og:image")
+    resp = client.get(image.replace("http://localhost", ""))
+    assert resp.status_code == 200 and resp.data[:2] == b"\xff\xd8"

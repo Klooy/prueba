@@ -7,11 +7,11 @@
   <h1>Menú del día</h1>
   <a class="btn small" href="{{ url_for('admin_product_form') }}"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Novedad</a>
 </div>
-<p class="muted" style="font-size:.9rem">Lo que esté <strong>visible</strong> aparece en el menú público. Ocultar no borra: puedes reactivarlo otro día.</p>
+<p class="muted" style="font-size:.9rem">Lo que esté <strong>visible</strong> aparece en el menú público. Ocultar no borra: puedes reactivarlo otro día. Con <svg class="icon" aria-label="el botón compartir"><use href="#i-share"/></svg> compartes un producto en tu estado de WhatsApp: sale con su foto, su nombre y su precio.</p>
 
 <div class="card">
   {% if products %}
-  <ul class="list">
+  <ul class="list product-rows">
     {% for p in products %}
     <li class="{% if not p.active %}off{% endif %}">
       {% if p.image %}
@@ -24,10 +24,17 @@
         {% set size = sizes.get(p.id) %}
         <small>{{ p.category or 'Sin categoría' }}{% if size %} · {{ size[0] }} {{ 'medida' if size[0] == 1 else 'medidas' }}, desde {{ size[1]|cop }}{% elif p.price %} · {{ price_text(p.price) }}{% endif %}</small>
       </a>
-      <form method="post" action="{{ url_for('admin_product_toggle', product_id=p.id) }}" class="inline">
-        <input type="hidden" name="csrf" value="{{ csrf_token }}">
-        <button class="btn small {{ 'ghost' if p.active else 'lapis' }}" type="submit">{{ 'Ocultar' if p.active else 'Mostrar' }}</button>
-      </form>
+      <div class="row-actions">
+        {% if p.id in shares %}{% set sh = shares[p.id] %}
+        <a class="btn small ghost icon-only" href="https://wa.me/?text={{ (sh.text ~ ' ' ~ sh.url)|urlencode }}" target="_blank" rel="noopener"
+           data-share data-share-title="{{ sh.title }}" data-share-text="{{ sh.text }}" data-share-url="{{ sh.url }}" data-share-image="{{ sh.image }}"
+           aria-label="Compartir {{ p.title }}" title="Compartir (WhatsApp, estados…)"><svg class="icon" aria-hidden="true"><use href="#i-share"/></svg></a>
+        {% endif %}
+        <form method="post" action="{{ url_for('admin_product_toggle', product_id=p.id) }}" class="inline">
+          <input type="hidden" name="csrf" value="{{ csrf_token }}">
+          <button class="btn small {{ 'ghost' if p.active else 'lapis' }}" type="submit">{{ 'Ocultar' if p.active else 'Mostrar' }}</button>
+        </form>
+      </div>
     </li>
     {% endfor %}
   </ul>
@@ -47,4 +54,7 @@
   <button class="btn small danger" type="submit">Vaciar menú para mañana</button>
 </form>
 {% endif %}
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/share.js', v=asset_v) }}" defer></script>
 {% endblock %}
