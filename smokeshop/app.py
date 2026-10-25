@@ -38,6 +38,8 @@ DEFAULT_SETTINGS = {
     "tagline": "Humo sagrado · Novedades frescas cada día",
     "code_prefix": "ANK",
     "whatsapp": "",              # WhatsApp de la tienda para pedidos: dígitos con indicativo (57...)
+    "referral_value": "0",       # pesos que gana un cliente por cada persona que se registra con su enlace
+    "self_signup": "1",          # los clientes pueden registrarse solos desde la web
 }
 
 SCHEMA = """
@@ -52,6 +54,7 @@ CREATE TABLE IF NOT EXISTS customers (
     code        TEXT NOT NULL UNIQUE,
     referred_by INTEGER REFERENCES customers(id) ON DELETE SET NULL,
     notes       TEXT NOT NULL DEFAULT '',
+    origin      TEXT NOT NULL DEFAULT 'tienda',  -- tienda (lo registró el administrador) | web (se registró solo)
     created_at  TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS rewards (
@@ -119,6 +122,7 @@ ORDER_STATUSES = {         # en este orden salen los filtros del historial
 MAX_ORDER_LINES = 40       # productos distintos por pedido
 MAX_ORDER_QTY = 99         # unidades de un producto (igual que el carrito)
 ORDER_LIMIT = (10, 600)    # pedidos nuevos por dirección IP en 10 minutos
+SIGNUP_LIMIT = (20, 3600)  # registros por dirección IP en una hora (holgado: en la tienda comparten wifi)
 ORDERS_PER_PAGE = 30
 
 MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
@@ -287,6 +291,19 @@ def close_db(_exc=None):
         db.close()
 
 
+def ensure_column(db, table, column, definition):
+    """Agrega `column` a `table` si todavía no existe (en SQLite o en Postgres)."""
+    if isinstance(db, PgDB):
+        exists = db.execute(
+            "SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' "
+            "AND table_name = ? AND column_name = ?", (table, column),
+        ).fetchone()
+    else:
+        exists = any(row["name"] == column for row in db.execute(f"PRAGMA table_info({table})"))
+    if not exists:
+        db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
 def init_db():
     db = get_db()
     if isinstance(db, PgDB):
@@ -301,10 +318,9 @@ def init_db():
                 db.execute(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
     else:
         db.script(SCHEMA)
-        # Bases creadas cuando los descuentos eran en %: agregar la columna de pesos.
-        columns = {row["name"] for row in db.execute("PRAGMA table_info(rewards)")}
-        if "amount" not in columns:
-            db.execute("ALTER TABLE rewards ADD COLUMN amount INTEGER NOT NULL DEFAULT 0")
+    # Columnas que llegaron después: las bases creadas antes no las tienen.
+    ensure_column(db, "rewards", "amount", "BIGINT NOT NULL DEFAULT 0")      # descuentos en pesos
+    ensure_column(db, "customers", "origin", "TEXT NOT NULL DEFAULT 'tienda'")
     for key, value in DEFAULT_SETTINGS.items():
         db.execute("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO NOTHING", (key, value))
     # STORE_WHATSAPP llena el número si el administrador aún no lo ha configurado.
@@ -474,23 +490,30 @@ def add_reward(customer_id, kind, amount, source_id=None, note=""):
     )
 
 
-def register_customer(name, phone, referrer=None, notes="", referrer_amount=0, welcome_amount=0):
-    """Crea el cliente y, si el administrador los indicó, los descuentos del referido.
+def register_customer(name, phone, referrer=None, notes="", referrer_amount=0, welcome_amount=0, origin="tienda"):
+    """Crea el cliente y, si los hay, los descuentos del referido.
 
     `referrer_amount` es para quien lo refirió y `welcome_amount` para el cliente nuevo,
-    ambos en pesos. Devuelve el id nuevo.
+    ambos en pesos. `origin` es "tienda" (lo registró el administrador) o "web" (se
+    registró solo). Devuelve el id nuevo.
     """
     db = get_db()
     new_id = db.insert(
-        "INSERT INTO customers (name, phone, code, referred_by, notes, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        (name, phone, generate_code(), referrer["id"] if referrer else None, notes, now()),
+        "INSERT INTO customers (name, phone, code, referred_by, notes, origin, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (name, phone, generate_code(), referrer["id"] if referrer else None, notes, origin, now()),
     )
     if referrer:
         add_reward(referrer["id"], "referral", referrer_amount, new_id)
     add_reward(new_id, "welcome", welcome_amount, referrer["id"] if referrer else None)
     db.commit()
     return new_id
+
+
+def referral_value():
+    """Pesos que gana un cliente por cada persona que se registra con su enlace o su código."""
+    value = get_settings().get("referral_value", "0")
+    return int(value) if value.isdecimal() else 0
 
 
 def customer_stats(customer_id):
@@ -580,25 +603,26 @@ def order_view(row):
     return order
 
 
-def too_many_orders():
-    """Freno básico contra pedidos falsos en masa: como mucho ORDER_LIMIT pedidos nuevos por IP.
+def rate_limited(kind, limit_window):
+    """Freno básico contra pedidos o registros falsos en masa: como mucho `limit` por IP cada
+    `window` segundos. Cuenta la acción si no está frenada.
 
     La cuenta vive en memoria (cada proceso lleva la suya): no es infalible, pero evita que un
-    script llene el historial.
+    script llene el historial o reparta puntos de referido.
     """
     from flask import current_app
-    limit, window = ORDER_LIMIT
-    log = current_app.extensions.setdefault("order_log", {})
-    ip = request.access_route[0] if request.access_route else ""
+    limit, window = limit_window
+    log = current_app.extensions.setdefault("rate_log", {})
+    key = (kind, request.access_route[0] if request.access_route else "")
     moment = time.time()
-    if len(log) > 1000:                       # olvida direcciones sin pedidos recientes
-        for key in [k for k, times in log.items() if not times or moment - times[-1] >= window]:
-            del log[key]
-    recent = [t for t in log.get(ip, ()) if moment - t < window]
+    if len(log) > 1000:                       # olvida direcciones sin actividad reciente
+        for old in [k for k, times in log.items() if not times or moment - times[-1] >= window]:
+            del log[old]
+    recent = [t for t in log.get(key, ()) if moment - t < window]
     blocked = len(recent) >= limit
     if not blocked:
         recent.append(moment)
-    log[ip] = recent
+    log[key] = recent
     return blocked
 
 
@@ -763,6 +787,8 @@ def register_hooks(app):
             "new_orders": get_db().execute(
                 "SELECT COUNT(*) FROM orders WHERE status = 'nuevo'").fetchone()[0] if admin else 0,
             "storage": storage_status() if admin else None,
+            "referral_value": referral_value(),
+            "self_signup": get_settings().get("self_signup") == "1",
         }
 
     @app.template_filter("fecha")
@@ -837,23 +863,66 @@ def register_public_routes(app):
 
     @app.route("/mi-codigo", methods=["GET", "POST"])
     def my_code():
-        customer = stats = None
+        """Consulta por código. El código queda recordado en este navegador (sesión)."""
         code = ""
         if request.method == "POST":
             code = normalize_code(request.form.get("code"))
             customer = find_customer_by_code(code)
             if customer:
-                stats = customer_stats(customer["id"])
+                session["customer_code"] = customer["code"]
             else:
                 flash("No encontramos ese código. Revísalo o pregúntanos en tienda.", "error")
-        return render_template("public/my_code.html", customer=customer, stats=stats, code=code)
+        else:
+            customer = find_customer_by_code(session.get("customer_code", ""))
+        stats = customer_stats(customer["id"]) if customer else None
+        return render_template("public/my_code.html", customer=customer, stats=stats,
+                               code=code or (customer["code"] if customer else ""))
+
+    @app.route("/mi-codigo/salir", methods=["POST"])
+    def my_code_forget():
+        session.pop("customer_code", None)
+        return redirect(url_for("my_code"))
 
     @app.route("/r/<code>")
     def referral_landing(code):
         referrer = find_customer_by_code(code)
         if not referrer:
             abort(404)
-        return render_template("public/invite.html", referrer=referrer)
+        if get_settings()["self_signup"] != "1":   # registro cerrado: la invitación de siempre
+            return render_template("public/invite.html", referrer=referrer)
+        return render_template("public/register.html", referrer=referrer, form={"name": "", "phone": ""})
+
+    @app.route("/registro", methods=["GET", "POST"])
+    def register():
+        """Registro de clientes desde la web. Si llegan con el código de alguien (enlace o
+        escrito), quien los invitó gana el valor por referido de Ajustes."""
+        if get_settings()["self_signup"] != "1":
+            abort(404)
+        form = {k: (request.values.get(k) or "").strip() for k in ("name", "phone", "ref")}
+        referrer = find_customer_by_code(form["ref"]) if form["ref"] else None
+        if request.method == "POST":
+            phone = normalize_phone(form["phone"])
+            if not form["name"]:
+                error = "Escribe tu nombre."
+            elif not 7 <= len(phone) <= 15:
+                error = "Escribe un celular válido."
+            elif form["ref"] and not referrer:
+                error = "Ese código de invitación no existe. Revísalo o déjalo vacío."
+            elif not (request.form.get("adult") and request.form.get("consent")):
+                error = "Para registrarte confirma que eres mayor de edad y autoriza el uso de tus datos."
+            elif get_db().execute("SELECT 1 FROM customers WHERE phone = ?", (phone,)).fetchone():
+                error = "Ese celular ya tiene un código. Si no lo recuerdas, pídelo en la tienda."
+            elif rate_limited("registro", SIGNUP_LIMIT):
+                error = "Hubo muchos registros seguidos desde tu conexión. Intenta más tarde."
+            else:
+                new_id = register_customer(form["name"][:60], phone, referrer,
+                                           referrer_amount=referral_value(), origin="web")
+                session["customer_code"] = get_db().execute(
+                    "SELECT code FROM customers WHERE id = ?", (new_id,)).fetchone()[0]
+                flash("¡Listo! Este es tu código. Comparte tu enlace y gana descuentos por cada amigo que se registre.", "ok")
+                return redirect(url_for("my_code"))
+            flash(error, "error")
+        return render_template("public/register.html", referrer=referrer, form=form)
 
     @app.route("/pedido", methods=["POST"])
     def place_order():
@@ -891,7 +960,7 @@ def register_public_routes(app):
                 "note = ?, updated_at = ? WHERE id = ?",
                 (*values, order_id),
             )
-        elif too_many_orders():
+        elif rate_limited("pedido", ORDER_LIMIT):
             flash("Recibimos muchos pedidos seguidos desde tu conexión. Espera unos minutos.", "error")
             return redirect(url_for("menu"))
         else:
@@ -1073,7 +1142,7 @@ def register_admin_routes(app):
     @admin_required
     def admin_customer_new():
         form = {"name": "", "phone": "", "ref": request.args.get("ref", ""), "notes": "",
-                "ref_amount": "", "welcome_amount": ""}
+                "ref_amount": str(referral_value() or ""), "welcome_amount": ""}
         if request.method == "POST":
             form = {k: (request.form.get(k) or "").strip() for k in form}
             phone = normalize_phone(form["phone"])
@@ -1166,6 +1235,10 @@ def register_admin_routes(app):
     @admin_required
     def admin_customer_delete(customer_id):
         db = get_db()
+        # Si alguien ganó un descuento por referirlo y no lo ha usado, se le quita
+        # (así un registro falso no deja puntos).
+        db.execute("DELETE FROM rewards WHERE source_id = ? AND kind = 'referral' AND redeemed_at IS NULL",
+                   (customer_id,))
         db.execute("DELETE FROM customers WHERE id = ?", (customer_id,))
         db.commit()
         flash("Cliente eliminado.", "ok")
@@ -1354,12 +1427,16 @@ def register_admin_routes(app):
     def admin_settings():
         if request.method == "POST":
             form = {k: (request.form.get(k) or "").strip()
-                    for k in ("store_name", "tagline", "code_prefix", "whatsapp")}
+                    for k in ("store_name", "tagline", "code_prefix", "whatsapp", "referral_value")}
+            form["self_signup"] = "1" if request.form.get("self_signup") else "0"
             whatsapp = normalize_whatsapp(form["whatsapp"])
+            referral = parse_cop(form["referral_value"])
             new_pw = request.form.get("new_password", "")
             error = None
             if form["whatsapp"] and not 10 <= len(whatsapp) <= 15:
                 error = "Escribe el WhatsApp con el indicativo del país, por ejemplo 57 300 123 4567."
+            elif check_discount(referral):
+                error = "Valor de cada referido: " + check_discount(referral)
             elif new_pw and len(new_pw) < 6:
                 error = "La nueva contraseña debe tener al menos 6 caracteres."
             if error:
@@ -1370,6 +1447,8 @@ def register_admin_routes(app):
                 set_setting(key, form[key] or DEFAULT_SETTINGS[key])
             set_setting("code_prefix", normalize_code(form["code_prefix"])[:6] or DEFAULT_SETTINGS["code_prefix"])
             set_setting("whatsapp", whatsapp)
+            set_setting("referral_value", str(referral))
+            set_setting("self_signup", form["self_signup"])
             if new_pw:
                 set_setting("admin_password", generate_password_hash(new_pw))
             get_db().commit()

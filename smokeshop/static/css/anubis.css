@@ -659,6 +659,8 @@ input[type=file]::file-selector-button {
 }
 .check { display: flex; align-items: center; gap: 10px; font-size: .92rem; color: var(--papyrus); cursor: pointer; letter-spacing: 0; }
 .check input { width: 20px; height: 20px; accent-color: var(--jade); }
+.check.consent { align-items: flex-start; font-size: .86rem; line-height: 1.45; }
+.check.consent input { flex: none; margin: 1px 0 0; }
 
 /* --------------------------------------------------------------- botones */
 .btn {
