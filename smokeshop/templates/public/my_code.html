@@ -7,9 +7,9 @@
   <svg class="small-mark" aria-hidden="true"><use href="#i-leaf"/></svg>
   <h1 class="gradient-text">Tu código sagrado</h1>
   {% if customer %}
-  <p>Comparte tu enlace: cada amigo que se registre con él te suma descuento.</p>
+  <p>{% if private_mode %}Cada amigo que la tienda registre de tu parte te suma descuento.{% else %}Comparte tu enlace: cada amigo que se registre con él te suma descuento.{% endif %}</p>
   {% else %}
-  <p>Escribe tu código para ver tus referidos, tus descuentos y tu enlace para invitar.</p>
+  <p>{% if private_mode %}Escribe tu código para entrar al menú y ver tus referidos y tus descuentos.{% else %}Escribe tu código para ver tus referidos, tus descuentos y tu enlace para invitar.{% endif %}</p>
   {% endif %}
 </section>
 
@@ -43,10 +43,15 @@
     {% if referral_value %}
     <div class="reward mt">
       <div class="pct">{{ referral_value|cop }}</div>
-      <div class="info"><strong>Por cada referido</strong><br><small>Lo ganas cada vez que un amigo se registra con tu enlace o tu código.</small></div>
+      <div class="info"><strong>Por cada referido</strong><br><small>{% if private_mode %}Lo ganas cada vez que la tienda registra a un amigo que va de tu parte.{% else %}Lo ganas cada vez que un amigo se registra con tu enlace o tu código.{% endif %}</small></div>
     </div>
     {% endif %}
 
+    {% if private_mode %}{# la tienda registra a cada cliente: no hay enlace que abra el menú #}
+    <h3 class="mt">Invita a tus amigos</h3>
+    <p class="muted" style="font-size:.9rem;margin:0">Tu amigo le escribe a la tienda y dice que va de tu parte, con tu código <strong class="tel">{{ customer.code }}</strong>. Cuando la tienda lo registre, ganas tu descuento.</p>
+    <a class="btn leaf block mt" href="{{ url_for('menu') }}"><svg class="icon" aria-hidden="true"><use href="#i-scroll"/></svg>Ver el menú del día</a>
+    {% else %}
     <h3 class="mt">Tu enlace para invitar</h3>
     <div class="share-box">
       <input type="text" readonly value="{{ invite_url }}" id="invite" aria-label="Enlace de invitación">
@@ -58,6 +63,7 @@
       <svg class="icon" aria-hidden="true"><use href="#i-share"/></svg>Invitar amigos por WhatsApp
     </a>
     <p class="muted center" style="font-size:.8rem;margin:8px 0 0">WhatsApp te deja elegir a quién enviarle tu enlace.</p>
+    {% endif %}
 
     {% if stats.pending %}
       <h3 class="mt">Listos para usar</h3>

@@ -42,7 +42,8 @@ DEFAULT_SETTINGS = {
     "code_prefix": "ANK",
     "whatsapp": "",              # WhatsApp de la tienda para pedidos: dígitos con indicativo (57...)
     "referral_value": "0",       # pesos que gana un cliente por cada persona que se registra con su enlace
-    "self_signup": "1",          # los clientes pueden registrarse solos desde la web
+    "self_signup": "1",          # los clientes pueden registrarse solos desde la web (no con el menú privado)
+    "private_menu": "1",         # el menú y los pedidos son solo para clientes registrados: entran con su código
     "payment_methods": "Efectivo, Nequi, Daviplata, Transferencia",   # el cliente elige uno al pedir
 }
 
@@ -144,6 +145,8 @@ MAX_ORDER_LINES = 40       # líneas por pedido (cada producto o cada medida de 
 MAX_ORDER_QTY = 99         # unidades por línea (igual que el carrito)
 ORDER_LIMIT = (10, 600)    # pedidos nuevos por dirección IP en 10 minutos
 SIGNUP_LIMIT = (20, 3600)  # registros por dirección IP en una hora (holgado: en la tienda comparten wifi)
+LOGIN_LIMIT = (10, 900)    # intentos de contraseña del panel por dirección IP en 15 minutos
+CODE_LIMIT = (20, 600)     # códigos de cliente escritos por dirección IP en 10 minutos (contra adivinarlos)
 ORDERS_PER_PAGE = 30
 
 MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
@@ -173,6 +176,8 @@ def create_app(test_config=None):
         MAX_CONTENT_LENGTH=6 * 1024 * 1024,
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
+        SESSION_COOKIE_SECURE=ON_VERCEL,      # en Vercel todo va por https
+        PERMANENT_SESSION_LIFETIME=timedelta(days=60),   # el celular recuerda el código del cliente
     )
     if test_config:
         app.config.update(test_config)
@@ -513,6 +518,27 @@ def find_customer_by_code(code):
     if not code:
         return None
     return get_db().execute("SELECT * FROM customers WHERE code = ?", (code,)).fetchone()
+
+
+def current_client():
+    """El cliente que entró con su código en este navegador, o None (si lo borraron, ya no entra)."""
+    return find_customer_by_code(session.get("customer_code", ""))
+
+
+def private_mode():
+    """Menú privado (Ajustes): solo los clientes registrados por la tienda ven el menú y piden."""
+    return get_settings().get("private_menu") == "1"
+
+
+def signup_open():
+    """Los clientes pueden registrarse solos desde la web (Ajustes), nunca con el menú privado."""
+    return get_settings().get("self_signup") == "1" and not private_mode()
+
+
+def safe_next(target):
+    """Página de esta misma tienda a la que volver después de entrar, o ""."""
+    target = target or ""
+    return target if target.startswith("/") and not target.startswith(("//", "/\\")) else ""
 
 
 def add_reward(customer_id, kind, amount, source_id=None, note=""):
@@ -959,6 +985,7 @@ def product_share(product, sizes):
         image = url_for("static", filename="img/anubis.jpg", _external=True)
     return {
         "url": url_for("product_page", product_id=product["id"], _external=True),
+        "name": product["title"],
         "title": title,
         "description": description[:200],
         "image": image,
@@ -1020,7 +1047,8 @@ def register_hooks(app):
                 "SELECT COUNT(*) FROM orders WHERE status = 'nuevo'").fetchone()[0] if admin else 0,
             "storage": storage_status() if admin else None,
             "referral_value": referral_value(),
-            "self_signup": get_settings().get("self_signup") == "1",
+            "self_signup": signup_open(),
+            "private_mode": private_mode(),
         }
 
     @app.template_filter("fecha")
@@ -1058,6 +1086,12 @@ def register_hooks(app):
     def first_name(value):
         return (value or "").split(" ")[0]
 
+    @app.after_request
+    def no_search_engines(resp):
+        # La tienda no quiere aparecer en Google ni en otros buscadores: sus clientes llegan por ella.
+        resp.headers.setdefault("X-Robots-Tag", "noindex, nofollow")
+        return resp
+
     @app.errorhandler(413)
     def too_large(_e):
         flash("La imagen es demasiado pesada (máximo 6 MB).", "error")
@@ -1068,7 +1102,15 @@ def register_hooks(app):
 
 def render_menu(shared=None):
     """El menú del día. Con `shared` (un producto que alguien compartió) la página lleva la vista
-    previa de ese producto para WhatsApp y baja hasta él."""
+    previa de ese producto para WhatsApp y baja hasta él.
+
+    Con el menú privado, quien no ha entrado con su código ve la puerta (y nada del menú). En un
+    enlace de producto la puerta conserva su vista previa, para los estados que comparte la tienda.
+    """
+    client = current_client()
+    if private_mode() and not client and not is_admin():
+        og = product_share(shared, options_by_product([shared["id"]]).get(shared["id"], [])) if shared else None
+        return render_template("public/private.html", og=og, next=request.path)
     products = get_db().execute(
         "SELECT * FROM products WHERE active = 1 ORDER BY featured DESC, created_at DESC, id DESC"
     ).fetchall()
@@ -1091,7 +1133,8 @@ def render_menu(shared=None):
     shares = {p["id"]: product_share(p, options.get(p["id"], [])) for p in products}
     return render_template(
         "public/menu.html", products=products, categories=categories, menu_items=menu_items,
-        options=options, shares=shares, shared=shared, payment_methods=payment_methods(), today=local_now(),
+        options=options, shares=shares, shared=shared, og=shares[shared["id"]] if shared else None,
+        client=client, payment_methods=payment_methods(), today=local_now(),
     )
 
 
@@ -1099,6 +1142,15 @@ def register_public_routes(app):
     @app.route("/")
     def menu():
         return render_menu()
+
+    @app.route("/robots.txt")
+    def robots():
+        """Fuera de los buscadores. Las vistas previas de WhatsApp y Facebook sí pueden leer los
+        enlaces de productos y la imagen de la tienda (para los estados que comparte la tienda)."""
+        body = ("User-agent: WhatsApp\nUser-agent: facebookexternalhit\n"
+                "Allow: /p/\nAllow: /static/img/\nDisallow: /\n\n"
+                "User-agent: *\nDisallow: /\n")
+        return Response(body, mimetype="text/plain")
 
     @app.route("/p/<int:product_id>")
     def product_page(product_id):
@@ -1136,17 +1188,26 @@ def register_public_routes(app):
 
     @app.route("/mi-codigo", methods=["GET", "POST"])
     def my_code():
-        """Consulta por código. El código queda recordado en este navegador (sesión)."""
+        """Consulta por código. El código queda recordado en este navegador (60 días) y, con el menú
+        privado, es lo que abre el menú: `next` vuelve a la página desde donde entró."""
         code = ""
+        nxt = safe_next(request.values.get("next"))
         if request.method == "POST":
             code = normalize_code(request.form.get("code"))
-            customer = find_customer_by_code(code)
-            if customer:
-                session["customer_code"] = customer["code"]
+            customer = None
+            if rate_limited("codigo", CODE_LIMIT):
+                flash("Demasiados intentos seguidos desde tu conexión. Espera unos minutos.", "error")
             else:
-                flash("No encontramos ese código. Revísalo o pregúntanos en tienda.", "error")
+                customer = find_customer_by_code(code)
+                if customer:
+                    session["customer_code"] = customer["code"]
+                    session.permanent = True
+                else:
+                    flash("No encontramos ese código. Revísalo o pregúntanos en tienda.", "error")
+            if nxt:
+                return redirect(nxt)
         else:
-            customer = find_customer_by_code(session.get("customer_code", ""))
+            customer = current_client()
         stats = customer_stats(customer["id"]) if customer else None
         return render_template("public/my_code.html", customer=customer, stats=stats,
                                code=code or (customer["code"] if customer else ""))
@@ -1158,10 +1219,12 @@ def register_public_routes(app):
 
     @app.route("/r/<code>")
     def referral_landing(code):
+        if private_mode():                         # menú privado: el enlace no abre la puerta
+            return redirect(url_for("menu"))
         referrer = find_customer_by_code(code)
         if not referrer:
             abort(404)
-        if get_settings()["self_signup"] != "1":   # registro cerrado: la invitación de siempre
+        if not signup_open():                      # registro cerrado: la invitación de siempre
             return render_template("public/invite.html", referrer=referrer)
         return render_template("public/register.html", referrer=referrer, form={"name": "", "phone": ""})
 
@@ -1169,7 +1232,7 @@ def register_public_routes(app):
     def register():
         """Registro de clientes desde la web. Si llegan con el código de alguien (enlace o
         escrito), quien los invitó gana el valor por referido de Ajustes."""
-        if get_settings()["self_signup"] != "1":
+        if not signup_open():
             abort(404)
         form = {k: (request.values.get(k) or "").strip() for k in ("name", "phone", "ref")}
         referrer = find_customer_by_code(form["ref"]) if form["ref"] else None
@@ -1208,6 +1271,10 @@ def register_public_routes(app):
         if not whatsapp:
             flash("La tienda todavía no recibe pedidos por WhatsApp.", "error")
             return redirect(url_for("menu"))
+        client = current_client()
+        if private_mode() and not client and not is_admin():
+            flash("Para pedir, entra con tu código de cliente.", "error")
+            return redirect(url_for("menu"))
         lines = order_lines(parse_order_items(request.form.get("items")))
         if not lines:
             flash("Tu pedido está vacío o sus productos ya no están en el menú de hoy.", "error")
@@ -1229,6 +1296,8 @@ def register_public_routes(app):
         accuracy = int(float(accuracy)) if location and accuracy.replace(".", "", 1).isdecimal() and len(accuracy) < 10 else 0
         name = (request.form.get("name") or "").strip()[:60]
         code = normalize_code(request.form.get("code"))[:16]
+        if private_mode() and client:               # el menú privado ya sabe quién pide
+            name, code = name or client["name"], client["code"]
         note = (request.form.get("note") or "").strip()[:300]
         customer = find_customer_by_code(code)
         total, pending = order_totals(lines)
@@ -1277,7 +1346,9 @@ def register_admin_routes(app):
         first_run = "admin_password" not in settings
         if request.method == "POST":
             password = request.form.get("password", "")
-            if first_run:
+            if not first_run and rate_limited("login", LOGIN_LIMIT):
+                flash("Demasiados intentos seguidos desde tu conexión. Espera unos minutos.", "error")
+            elif first_run:
                 if len(password) < 6:
                     flash("La contraseña debe tener al menos 6 caracteres.", "error")
                 elif password != request.form.get("confirm", ""):
@@ -1499,7 +1570,10 @@ def register_admin_routes(app):
             "WHERE o.customer_id = ? ORDER BY o.id DESC LIMIT 10",
             (customer_id,),
         ).fetchall()
-        invite_url = url_for("referral_landing", code=customer["code"], _external=True)
+        if private_mode():                   # el enlace que se le manda es el del menú: entra con su código
+            invite_url = url_for("menu", _external=True)
+        else:
+            invite_url = url_for("referral_landing", code=customer["code"], _external=True)
         return render_template(
             "admin/customer_detail.html", customer=customer, referrals=referrals,
             rewards=rewards, invite_url=invite_url, orders=[order_view(o) for o in orders],
@@ -1746,6 +1820,7 @@ def register_admin_routes(app):
                     for k in ("store_name", "tagline", "code_prefix", "whatsapp", "referral_value",
                               "payment_methods")}
             form["self_signup"] = "1" if request.form.get("self_signup") else "0"
+            form["private_menu"] = "1" if request.form.get("private_menu") else "0"
             whatsapp = normalize_whatsapp(form["whatsapp"])
             referral = parse_cop(form["referral_value"])
             new_pw = request.form.get("new_password", "")
@@ -1766,6 +1841,7 @@ def register_admin_routes(app):
             set_setting("whatsapp", whatsapp)
             set_setting("referral_value", str(referral))
             set_setting("self_signup", form["self_signup"])
+            set_setting("private_menu", form["private_menu"])
             methods = [m.strip()[:30] for m in form["payment_methods"].split(",") if m.strip()][:10]
             set_setting("payment_methods", ", ".join(methods) or DEFAULT_SETTINGS["payment_methods"])
             if new_pw:

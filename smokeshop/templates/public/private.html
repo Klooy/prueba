@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{# Menú privado: la puerta para quien no ha entrado con su código. No muestra nada del menú; en el
+   enlace de un producto conserva su vista previa, para los estados que comparte la tienda. #}
+{% block title %}{{ settings.store_name }}{% endblock %}
+{% block meta %}{% if og %}{% include "public/_og.html" %}{% else %}{{ super() }}{% endif %}{% endblock %}
+{% block top_links %}{% include "public/_links.html" %}{% endblock %}
+{% block content %}
+<section class="hero compact">
+  {% include "_hero_emblem.html" %}
+  <div class="eyebrow">Solo para clientes</div>
+  <h1 class="gradient-text">Entra con tu código</h1>
+  <p>{% if og %}Para ver este producto y el menú del día, y hacer tu pedido, escribe tu código de cliente.{% else %}El menú del día y los pedidos son solo para clientes de {{ settings.store_name }}. Escribe tu código para entrar.{% endif %}</p>
+</section>
+
+<div class="narrow">
+  <form method="post" action="{{ url_for('my_code') }}" class="card gilded">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    <input type="hidden" name="next" value="{{ next }}">
+    <div class="field">
+      <label for="code">Tu código de cliente</label>
+      <input class="code-input" id="code" name="code" type="text" placeholder="{{ settings.code_prefix }}-XXXXX"
+             autocomplete="off" autocapitalize="characters" required>
+    </div>
+    <button class="btn leaf block" type="submit"><svg class="icon" aria-hidden="true"><use href="#i-ankh"/></svg>Entrar</button>
+    <p class="muted center" style="font-size:.85rem;margin:12px 0 0">Tu celular lo recuerda: lo escribes una sola vez.</p>
+  </form>
+  <p class="center muted mt" style="font-size:.9rem">¿Aún no eres cliente? Pídele tu código a quien te atiende en {{ settings.store_name }}.</p>
+</div>
+{% endblock %}

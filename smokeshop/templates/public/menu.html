@@ -1,22 +1,7 @@
 {% extends "base.html" %}
 {% from "_macros.html" import price %}
 {% block title %}{{ shared.title if shared else 'Menú del día' }} · {{ settings.store_name }}{% endblock %}
-{% block meta %}
-{% if shared %}
-  {# Enlace de un producto: WhatsApp arma la vista previa con su foto, su nombre y su precio. #}
-  {% set og = shares[shared.id] %}
-  <meta name="description" content="{{ og.description }}">
-  <meta property="og:type" content="website">
-  <meta property="og:site_name" content="{{ settings.store_name }}">
-  <meta property="og:title" content="{{ og.title }}">
-  <meta property="og:description" content="{{ og.description }}">
-  <meta property="og:url" content="{{ og.url }}">
-  <meta property="og:image" content="{{ og.image }}">
-  <meta property="og:image:alt" content="{{ shared.title }}">
-{% else %}
-  {{ super() }}
-{% endif %}
-{% endblock %}
+{% block meta %}{% if og %}{% include "public/_og.html" %}{% else %}{{ super() }}{% endif %}{% endblock %}
 {% block top_links %}{% include "public/_links.html" %}{% endblock %}
 {% block content %}
 {% set dias = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'] %}
@@ -77,10 +62,13 @@
           {% endif %}
           {% if p.featured %}<span class="ribbon"><svg class="icon" aria-hidden="true"><use href="#i-star"/></svg>Destacado</span>{% endif %}
           <span class="idx" aria-hidden="true">{{ '%02d' % loop.index }}</span>
-          {# Sin JS abre WhatsApp con el enlace; con JS, el menú de compartir del celular (estados incluidos). #}
+          {# Sin JS abre WhatsApp con el enlace; con JS, el menú de compartir del celular (estados incluidos).
+             Con el menú privado solo lo ve la tienda: los clientes no reparten el menú. #}
+          {% if is_admin or not private_mode %}
           <a class="share-btn" href="https://wa.me/?text={{ (sh.text ~ ' ' ~ sh.url)|urlencode }}" target="_blank" rel="noopener"
              data-share data-share-title="{{ sh.title }}" data-share-text="{{ sh.text }}" data-share-url="{{ sh.url }}" data-share-image="{{ sh.image }}"
              aria-label="Compartir {{ p.title }}"><svg class="icon" aria-hidden="true"><use href="#i-share"/></svg></a>
+          {% endif %}
         </div>
         <div class="body">
           {% if p.category %}<span class="tag">{{ p.category }}</span>{% endif %}
@@ -137,9 +125,15 @@
     <p class="kicker" style="margin-bottom:10px">Programa de referidos</p>
     <h2 id="ref-title">Comparte el <em>humo sagrado</em></h2>
     <ol class="steps">
+      {% if private_mode %}{# la tienda registra a cada cliente: el amigo va de parte de alguien #}
+      <li><b>1</b>Tu amigo le escribe a la tienda para ser cliente</li>
+      <li><b>2</b>Dice que va de tu parte{% if client %}, con tu código {{ client.code }}{% endif %}</li>
+      <li><b>3</b>{% if referral_value %}Ganas {{ referral_value|cop }} de descuento cuando la tienda lo registre{% else %}Ganas descuentos en pesos cuando la tienda lo registre{% endif %}</li>
+      {% else %}
       <li><b>1</b>{% if self_signup %}Regístrate gratis y recibe tu código{% else %}Pide tu código en tienda{% endif %}</li>
       <li><b>2</b>Comparte tu enlace con tus amigos</li>
       <li><b>3</b>{% if referral_value %}Gana {{ referral_value|cop }} de descuento por cada amigo que se registre con tu enlace{% else %}Gana descuentos en pesos por cada amigo que llegue con tu código{% endif %}</li>
+      {% endif %}
     </ol>
     <div class="hero-actions">
       {% if self_signup %}<a class="btn leaf" href="{{ url_for('register') }}"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Registrarme</a>{% endif %}
@@ -215,6 +209,9 @@
         </div>
       </div>
 
+      {% if private_mode and client %}{# entró con su código: el pedido ya sabe quién es #}
+      <p class="cart-who">Pides como <strong>{{ client.name }}</strong> · <span class="tel">{{ client.code }}</span></p>
+      {% else %}
       <div class="field cart-group">
         <label for="cart-name">Tu nombre <span class="muted">(opcional)</span></label>
         <input id="cart-name" name="name" form="cart-form" type="text" enterkeyhint="next" autocomplete="name" maxlength="60" data-cart-field="name">
@@ -223,6 +220,7 @@
         <label for="cart-code">Tu código de cliente <span class="muted">(opcional, para usar tus descuentos)</span></label>
         <input class="code-input" id="cart-code" name="code" form="cart-form" type="text" enterkeyhint="next" placeholder="{{ settings.code_prefix }}-XXXXX" maxlength="16" autocomplete="off" autocapitalize="characters" data-cart-field="code">
       </div>
+      {% endif %}
       <div class="field">
         <label for="cart-notes">Nota para la tienda <span class="muted">(opcional)</span></label>
         <textarea id="cart-notes" name="note" form="cart-form" rows="2" maxlength="300" placeholder="Hora en que te queda bien, con qué billete pagas…" data-cart-field="notes"></textarea>
@@ -256,7 +254,7 @@
 <script src="{{ url_for('static', filename='js/photo.js', v=asset_v) }}" defer></script>
 <script src="{{ url_for('static', filename='js/cart.js', v=asset_v) }}" defer></script>
 {% endif %}
-{% if products %}<script src="{{ url_for('static', filename='js/share.js', v=asset_v) }}" defer></script>{% endif %}
+{% if products and (is_admin or not private_mode) %}<script src="{{ url_for('static', filename='js/share.js', v=asset_v) }}" defer></script>{% endif %}
 <script>
   {% if shared %}
   /* Llegó por el enlace de un producto: baja hasta él. */
