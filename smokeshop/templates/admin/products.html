@@ -7,7 +7,7 @@
   <h1>Menú del día</h1>
   <a class="btn small" href="{{ url_for('admin_product_form') }}"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Novedad</a>
 </div>
-<p class="muted" style="font-size:.9rem">Lo que esté <strong>visible</strong> aparece en el menú público. Ocultar no borra: puedes reactivarlo otro día. Con <svg class="icon" aria-label="el botón compartir"><use href="#i-share"/></svg> compartes un producto en tu estado de WhatsApp: sale con su foto, su nombre y su precio.</p>
+<p class="muted" style="font-size:.9rem">Lo que esté <strong>visible</strong> aparece en el menú público. Ocultar no borra: puedes reactivarlo otro día. Si algo se acaba, toca <strong>Agotado</strong> (o la medida que se acabó): sigue en el menú pero nadie lo puede pedir; tócalo otra vez cuando vuelva. Con <svg class="icon" aria-label="el botón compartir"><use href="#i-share"/></svg> compartes un producto en tu estado de WhatsApp: sale con su foto, su nombre y su precio.</p>
 
 <div class="card">
   {% if products %}
@@ -22,9 +22,15 @@
       <a class="rowlink main" href="{{ url_for('admin_product_form', product_id=p.id) }}">
         <strong>{% if p.featured %}<svg class="icon" style="color:var(--gold)" aria-label="Destacado"><use href="#i-star"/></svg> {% endif %}{{ p.title }}</strong>
         {% set size = sizes.get(p.id) %}
-        <small>{{ p.category or 'Sin categoría' }}{% if size %} · {{ size[0] }} {{ 'medida' if size[0] == 1 else 'medidas' }}, desde {{ size[1]|cop }}{% elif p.price %} · {{ price_text(p.price) }}{% endif %}</small>
+        <small>{{ p.category or 'Sin categoría' }}{% if size %} · {{ size[0] }} {{ 'medida' if size[0] == 1 else 'medidas' }}, desde {{ size[1]|cop }}{% elif p.price %} · {{ price_text(p.price) }}{% endif %}{% if p.sold_out %} · <b class="out">Agotado</b>{% endif %}</small>
       </a>
       <div class="row-actions">
+        {% if p.active and not options.get(p.id) %}
+        <form method="post" action="{{ url_for('admin_product_sold_out', product_id=p.id) }}" class="inline">
+          <input type="hidden" name="csrf" value="{{ csrf_token }}">
+          <button class="btn small out-toggle" type="submit" aria-pressed="{{ 'true' if p.sold_out else 'false' }}" title="{{ 'Ya volvió: tócalo' if p.sold_out else 'Se acabó: tócalo' }}">Agotado</button>
+        </form>
+        {% endif %}
         {% if p.id in shares %}{% set sh = shares[p.id] %}
         <a class="btn small ghost icon-only" href="https://wa.me/?text={{ (sh.text ~ ' ' ~ sh.url)|urlencode }}" target="_blank" rel="noopener"
            data-share data-share-title="{{ sh.title }}" data-share-text="{{ sh.text }}" data-share-url="{{ sh.url }}" data-share-image="{{ sh.image }}"
@@ -35,6 +41,15 @@
           <button class="btn small {{ 'ghost' if p.active else 'lapis' }}" type="submit">{{ 'Ocultar' if p.active else 'Mostrar' }}</button>
         </form>
       </div>
+      {% if p.active and options.get(p.id) %}{# cada medida se marca agotada por separado #}
+      <form method="post" action="{{ url_for('admin_product_sold_out', product_id=p.id) }}" class="size-toggles">
+        <input type="hidden" name="csrf" value="{{ csrf_token }}">
+        <span class="muted">Agotadas:</span>
+        {% for o in options[p.id] %}
+        <button class="size-toggle" type="submit" name="option_id" value="{{ o.id }}" aria-pressed="{{ 'true' if o.sold_out else 'false' }}">{{ o.label }}</button>
+        {% endfor %}
+      </form>
+      {% endif %}
     </li>
     {% endfor %}
   </ul>

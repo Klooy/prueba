@@ -31,6 +31,22 @@
        href="https://wa.me/{{ customer.phone|wa }}?text={{ (greeting ~ ('. Con él entras al menú y haces tus pedidos: ' if private_mode else '. Compártelo: ') ~ invite_url)|urlencode }}">
       <svg class="icon" aria-hidden="true"><use href="#i-share"/></svg>Enviar código por WhatsApp
     </a>
+    <div class="access mt">
+      <p class="form-group-title">Acceso{% if customer.paused %} <span class="badge st-cancelado">En pausa</span>{% endif %}</p>
+      <div class="btn-row">
+        <form method="post" action="{{ url_for('admin_customer_pause', customer_id=customer.id) }}" class="inline"
+              onsubmit='return confirm({{ (("¿Reactivar el acceso de " if customer.paused else "¿Pausar el acceso de ") ~ customer.name ~ "?")|tojson }})'>
+          <input type="hidden" name="csrf" value="{{ csrf_token }}">
+          <button class="btn small {{ 'leaf' if customer.paused else 'ghost' }}" type="submit">{{ 'Reactivar acceso' if customer.paused else 'Pausar acceso' }}</button>
+        </form>
+        <form method="post" action="{{ url_for('admin_customer_new_code', customer_id=customer.id) }}" class="inline"
+              onsubmit='return confirm("¿Darle un código nuevo? El que tiene ahora deja de servir.")'>
+          <input type="hidden" name="csrf" value="{{ csrf_token }}">
+          <button class="btn small ghost" type="submit">Cambiar código</button>
+        </form>
+      </div>
+      <small class="hint">En pausa no entra al menú ni a Mi código, y conservas todo su historial. Cambia el código si lo regaló o lo publicó: el anterior deja de servir.</small>
+    </div>
   </section>
 
   <section class="card">

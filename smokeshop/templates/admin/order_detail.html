@@ -25,10 +25,18 @@
       </li>
       {% endfor %}
     </ul>
+    {% if order.discount or order.delivery or order.delivery_note %}
+    <dl class="cart-breakdown">
+      <div><dt>Productos</dt><dd>{% if not order.total and order.pending %}Por confirmar{% else %}{{ order.total|cop }}{% if order.pending %} +{% endif %}{% endif %}</dd></div>
+      {% if order.discount %}<div><dt>Descuento de su saldo</dt><dd>−{{ order.discount|cop }}</dd></div>{% endif %}
+      {% if order.delivery or order.delivery_note %}<div><dt>Domicilio{% if order.zone %} ({{ order.zone }}){% endif %}</dt><dd>{{ order.delivery|cop if order.delivery else order.delivery_note|capitalize }}</dd></div>{% endif %}
+    </dl>
+    {% endif %}
     <div class="cart-sum">
-      <span>Total</span><strong>{{ (order.total|cop) if order.total else 'Por confirmar' }}{% if order.total and order.pending %} +{% endif %}</strong>
+      <span>Total</span><strong>{% if not order.total and order.pending %}Por confirmar{% else %}{{ order.to_pay|cop }}{% if order.open_amount %} +{% endif %}{% endif %}</strong>
     </div>
     {% if order.pending %}<p class="cart-pending">Hay productos con precio a confirmar.</p>{% endif %}
+    {% if order.discount %}<p class="cart-pending">{% if order.discount_used %}Ya se descontaron {{ order.discount_used|cop }} de su saldo.{% else %}Pidió usar {{ order.discount|cop }} de su saldo: se descuenta cuando confirmes el pedido.{% endif %}</p>{% endif %}
   </section>
 
   <section class="card">

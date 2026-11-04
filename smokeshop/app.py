@@ -7,6 +7,7 @@ descuentos, y publica las novedades del día. Los clientes ven el menú del día
 consultan su código de referido y envían su pedido por WhatsApp; cada pedido
 queda en el historial del panel.
 """
+import csv
 import hashlib
 import io
 import json
@@ -45,6 +46,13 @@ DEFAULT_SETTINGS = {
     "self_signup": "1",          # los clientes pueden registrarse solos desde la web (no con el menú privado)
     "private_menu": "1",         # el menú y los pedidos son solo para clientes registrados: entran con su código
     "payment_methods": "Efectivo, Nequi, Daviplata, Transferencia",   # el cliente elige uno al pedir
+    "orders_paused": "0",        # pausa rápida (Inicio del panel): el menú no recibe pedidos nuevos
+    "hours_open": "",            # horario de pedidos "HH:MM" (24 h); vacío = a cualquier hora
+    "hours_close": "",
+    "max_orders_day": "0",       # pedidos nuevos por día como máximo; 0 = sin límite
+    "delivery_fee": "0",         # domicilio en pesos (con barrios: el de "Otro barrio"); 0 = no se cobra
+    "delivery_zones": "",        # un barrio por línea con su domicilio: "Chapinero = 5000"
+    "free_delivery_from": "0",   # domicilio gratis desde este valor en productos; 0 = nunca
 }
 
 SCHEMA = """
@@ -60,6 +68,7 @@ CREATE TABLE IF NOT EXISTS customers (
     referred_by INTEGER REFERENCES customers(id) ON DELETE SET NULL,
     notes       TEXT NOT NULL DEFAULT '',
     origin      TEXT NOT NULL DEFAULT 'tienda',  -- tienda (lo registró el administrador) | web (se registró solo)
+    paused      INTEGER NOT NULL DEFAULT 0,      -- 1: acceso en pausa (no entra al menú privado ni a Mi código)
     created_at  TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS rewards (
@@ -82,6 +91,7 @@ CREATE TABLE IF NOT EXISTS products (
     image       TEXT,
     featured    INTEGER NOT NULL DEFAULT 0,
     active      INTEGER NOT NULL DEFAULT 1,
+    sold_out    INTEGER NOT NULL DEFAULT 0,  -- se ve en el menú, pero no se puede pedir
     created_at  TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS product_options (     -- medidas de un producto, cada una con su precio
@@ -89,7 +99,8 @@ CREATE TABLE IF NOT EXISTS product_options (     -- medidas de un producto, cada
     product_id  INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
     label       TEXT NOT NULL,               -- "10 g", "Caja x 3"
     price       INTEGER NOT NULL,            -- en pesos
-    position    INTEGER NOT NULL DEFAULT 0   -- orden en que se muestran
+    position    INTEGER NOT NULL DEFAULT 0,  -- orden en que se muestran
+    sold_out    INTEGER NOT NULL DEFAULT 0   -- esa medida se acabó
 );
 CREATE TABLE IF NOT EXISTS orders (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -106,6 +117,11 @@ CREATE TABLE IF NOT EXISTS orders (
     address     TEXT NOT NULL DEFAULT '',    -- dirección y referencias para el domicilio
     location    TEXT NOT NULL DEFAULT '',    -- "lat,lng" del GPS del cliente
     photo       TEXT,                        -- foto de la calle o la fachada (opcional)
+    discount    INTEGER NOT NULL DEFAULT 0,  -- pesos de su saldo de descuentos que el cliente pidió usar
+    discount_used INTEGER NOT NULL DEFAULT 0,  -- pesos que ya se descontaron de su saldo (al confirmar)
+    delivery    INTEGER NOT NULL DEFAULT 0,  -- domicilio en pesos
+    delivery_note TEXT NOT NULL DEFAULT '',  -- '' | gratis | por confirmar
+    zone        TEXT NOT NULL DEFAULT '',    -- barrio que eligió (si la tienda cobra por barrio)
     created_at  TEXT NOT NULL,
     updated_at  TEXT NOT NULL                -- última vez que el cliente lo envió
 );
@@ -126,6 +142,8 @@ REWARD_LABELS = {
     "welcome": "Bienvenida",
     "milestone": "Premio de meta",
     "manual": "Descuento asignado",
+    "remainder": "Saldo que quedó",          # lo que sobró de un descuento usado en un pedido
+    "refund": "Devuelto de un pedido",       # descuento de un pedido que se canceló
 }
 
 MAX_DISCOUNT = 10_000_000  # tope de seguridad contra ceros de más al escribir el valor
@@ -135,6 +153,13 @@ MAX_PRODUCT_OPTIONS = 12   # medidas por producto
 SHARE_IMAGE_SIDE = 1080
 SHARE_IMAGE_MAX_BYTES = 250_000
 
+CLIENT_STATUSES = {        # cómo ve el cliente el estado de su pedido (Mi código)
+    "nuevo": "Recibido",
+    "confirmado": "Confirmado",
+    "entregado": "Entregado",
+    "cancelado": "Cancelado",
+}
+OTHER_ZONE = "Otro barrio"  # en el domicilio por barrios: el que no está en la lista
 ORDER_STATUSES = {         # en este orden salen los filtros del historial
     "nuevo": "Nuevo",
     "confirmado": "Confirmado",
@@ -351,9 +376,16 @@ def init_db():
     # Columnas que llegaron después: las bases creadas antes no las tienen.
     ensure_column(db, "rewards", "amount", "BIGINT NOT NULL DEFAULT 0")      # descuentos en pesos
     ensure_column(db, "customers", "origin", "TEXT NOT NULL DEFAULT 'tienda'")
+    ensure_column(db, "customers", "paused", "INTEGER NOT NULL DEFAULT 0")
+    ensure_column(db, "products", "sold_out", "INTEGER NOT NULL DEFAULT 0")
+    ensure_column(db, "product_options", "sold_out", "INTEGER NOT NULL DEFAULT 0")
     for column, definition in (("payment", "TEXT NOT NULL DEFAULT ''"), ("address", "TEXT NOT NULL DEFAULT ''"),
                                ("location", "TEXT NOT NULL DEFAULT ''"), ("photo", "TEXT")):
         ensure_column(db, "orders", column, definition)                    # datos de entrega
+    for column, definition in (("discount", "BIGINT NOT NULL DEFAULT 0"), ("discount_used", "BIGINT NOT NULL DEFAULT 0"),
+                               ("delivery", "BIGINT NOT NULL DEFAULT 0"), ("delivery_note", "TEXT NOT NULL DEFAULT ''"),
+                               ("zone", "TEXT NOT NULL DEFAULT ''")):
+        ensure_column(db, "orders", column, definition)                    # descuento y domicilio
     for key, value in DEFAULT_SETTINGS.items():
         db.execute("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO NOTHING", (key, value))
     # El WhatsApp de los pedidos sale solo de Ajustes. Antes una variable STORE_WHATSAPP llenaba las
@@ -521,8 +553,10 @@ def find_customer_by_code(code):
 
 
 def current_client():
-    """El cliente que entró con su código en este navegador, o None (si lo borraron, ya no entra)."""
-    return find_customer_by_code(session.get("customer_code", ""))
+    """El cliente que entró con su código en este navegador, o None: si lo borraron o le pusieron
+    su acceso en pausa, ya no entra."""
+    customer = find_customer_by_code(session.get("customer_code", ""))
+    return customer if customer and not customer["paused"] else None
 
 
 def private_mode():
@@ -590,6 +624,37 @@ def customer_stats(customer_id):
     return {"referrals": referrals, "pending": pending, "total": sum(r["amount"] for r in pending)}
 
 
+def client_balance(customer_id):
+    """Pesos que un cliente puede usar: la suma de sus descuentos sin canjear."""
+    return get_db().execute(
+        "SELECT COALESCE(SUM(amount), 0) FROM rewards WHERE customer_id = ? AND redeemed_at IS NULL",
+        (customer_id,),
+    ).fetchone()[0]
+
+
+def redeem_amount(customer_id, amount, note):
+    """Canjea `amount` pesos del saldo del cliente, de los descuentos más viejos a los más nuevos.
+
+    Si un descuento vale más de lo que falta, se canjea entero y lo que sobra queda como un descuento
+    nuevo ("Saldo que quedó"). Devuelve los pesos canjeados (menos, si no alcanzaba el saldo).
+    """
+    db = get_db()
+    left = amount
+    for reward in db.execute(
+        "SELECT id, amount FROM rewards WHERE customer_id = ? AND redeemed_at IS NULL AND amount > 0 "
+        "ORDER BY created_at, id", (customer_id,),
+    ).fetchall():
+        if left <= 0:
+            break
+        db.execute("UPDATE rewards SET redeemed_at = ? WHERE id = ?", (now(), reward["id"]))
+        if reward["amount"] > left:
+            add_reward(customer_id, "remainder", reward["amount"] - left, note=note)
+            left = 0
+        else:
+            left -= reward["amount"]
+    return amount - left
+
+
 # ---------------------------------------------------------------------- pedidos
 
 def order_number(order_id):
@@ -597,17 +662,18 @@ def order_number(order_id):
 
 
 def options_by_product(product_ids):
-    """Medidas de esos productos, en su orden: {product_id: [{id, label, price}, …]}."""
+    """Medidas de esos productos, en su orden: {product_id: [{id, label, price, sold_out}, …]}."""
     ids = tuple(product_ids)
     if not ids:
         return {}
     options = {}
     for row in get_db().execute(
-        f"SELECT id, product_id, label, price FROM product_options WHERE product_id IN ({','.join('?' * len(ids))}) "
+        f"SELECT id, product_id, label, price, sold_out FROM product_options WHERE product_id IN ({','.join('?' * len(ids))}) "
         "ORDER BY position, id",
         ids,
     ).fetchall():
-        options.setdefault(row["product_id"], []).append({"id": row["id"], "label": row["label"], "price": row["price"]})
+        options.setdefault(row["product_id"], []).append(
+            {"id": row["id"], "label": row["label"], "price": row["price"], "sold_out": bool(row["sold_out"])})
     return options
 
 
@@ -679,12 +745,14 @@ def parse_order_items(raw):
 
 def order_lines(wanted):
     """Líneas del pedido con nombre, medida y precio del menú de hoy: del navegador solo se toman
-    ids y cantidades. Un producto con medidas solo se pide con una de sus medidas."""
+    ids y cantidades. Un producto con medidas solo se pide con una de sus medidas, y lo agotado no
+    entra."""
     product_ids = {product_id for product_id, _ in wanted}
     if not product_ids:
         return []
     rows = get_db().execute(
-        f"SELECT id, title, price FROM products WHERE active = 1 AND id IN ({','.join('?' * len(product_ids))}) "
+        f"SELECT id, title, price FROM products WHERE active = 1 AND sold_out = 0 "
+        f"AND id IN ({','.join('?' * len(product_ids))}) "
         "ORDER BY featured DESC, created_at DESC, id DESC",
         tuple(product_ids),
     ).fetchall()
@@ -694,7 +762,7 @@ def order_lines(wanted):
         if p["id"] in options:
             for option in options[p["id"]]:
                 qty = wanted.get((p["id"], option["id"]))
-                if qty:
+                if qty and not option["sold_out"]:
                     lines.append({"product_id": p["id"], "option_id": option["id"], "title": p["title"],
                                   "option": option["label"], "qty": qty, "price": option["price"], "label": ""})
         elif (p["id"], None) in wanted:
@@ -721,6 +789,104 @@ def payment_methods():
     return [m.strip() for m in raw.split(",") if m.strip()]
 
 
+def setting_int(key):
+    """Un ajuste en número (pesos, cantidades): 0 si está vacío o no es un número."""
+    value = get_settings().get(key, "")
+    return int(value) if value.isdecimal() else 0
+
+
+def parse_hhmm(raw):
+    """'21:30' -> minutos desde la medianoche (1290); None si no es una hora válida."""
+    hours, _, minutes = (raw or "").strip().partition(":")
+    if hours.isdecimal() and minutes.isdecimal() and len(minutes) == 2 and int(hours) < 24 and int(minutes) < 60:
+        return int(hours) * 60 + int(minutes)
+    return None
+
+
+def hour_text(minutes):
+    """1290 -> '9:30 p. m.'"""
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours % 12 or 12}:{minutes:02d} {'a. m.' if hours < 12 else 'p. m.'}"
+
+
+def orders_today():
+    """Pedidos de hoy (hora de Colombia) que cuentan para el máximo diario: todos menos los cancelados."""
+    start = local_now().strftime("%Y-%m-%dT00:00:00")
+    return get_db().execute(
+        "SELECT COUNT(*) FROM orders WHERE created_at >= ? AND status != 'cancelado'", (start,)
+    ).fetchone()[0]
+
+
+def ordering_status():
+    """¿El menú recibe pedidos nuevos ahora? -> (sí o no, el aviso para el cliente).
+
+    La tienda puede pausarlos, poner un horario (también uno que pasa la medianoche, como 6 p. m. a
+    2 a. m.) y un máximo de pedidos por día.
+    """
+    settings = get_settings()
+    if settings.get("orders_paused") == "1":
+        return False, "Por ahora no estamos recibiendo pedidos. Vuelve a intentarlo más tarde."
+    start, end = parse_hhmm(settings.get("hours_open")), parse_hhmm(settings.get("hours_close"))
+    if start is not None and end is not None and start != end:
+        moment = local_now().hour * 60 + local_now().minute
+        inside = start <= moment < end if start < end else (moment >= start or moment < end)
+        if not inside:
+            return False, f"Recibimos pedidos de {hour_text(start)} a {hour_text(end)}."
+    limit = setting_int("max_orders_day")
+    if limit and orders_today() >= limit:
+        return False, "Ya completamos los pedidos de hoy. ¡Gracias! Vuelve mañana."
+    return True, ""
+
+
+def parse_zone_line(line):
+    """'Chapinero = 5.000' (o 'Chapinero: 5k') -> ('Chapinero', 5000); ('', None) si no sirve."""
+    for sep in ("=", ":"):
+        if sep in line:
+            name, _, value = line.rpartition(sep)
+            break
+    else:
+        return "", None
+    name, value = name.strip()[:40], value.strip()
+    amount = parse_cop(value) if value else None
+    if not name or amount is None or amount > MAX_PRICE:
+        return "", None
+    return name, amount
+
+
+def delivery_zones():
+    """Barrios con su valor de domicilio, de Ajustes: [("Chapinero", 5000), …]."""
+    zones = []
+    for line in (get_settings().get("delivery_zones") or "").splitlines():
+        name, amount = parse_zone_line(line)
+        if name and name not in dict(zones):
+            zones.append((name, amount))
+    return zones
+
+
+def delivery_cost(zone, subtotal):
+    """Domicilio de un pedido -> (pesos, nota) con nota "", "gratis" o "por confirmar"; None si
+    hay barrios y el que llegó no es ninguno. `subtotal` es lo que suman los productos."""
+    zones = dict(delivery_zones())
+    general = setting_int("delivery_fee")
+    if zones:
+        if zone in zones:
+            fee = zones[zone]
+        elif zone == OTHER_ZONE:
+            fee = general or None              # sin valor general lo confirma la tienda
+        else:
+            return None
+    elif general:
+        fee = general
+    else:
+        return 0, ""                           # la tienda no cobra domicilio por aquí
+    free_from = setting_int("free_delivery_from")
+    if fee == 0 or (free_from and subtotal >= free_from):
+        return 0, "gratis"
+    if fee is None:
+        return 0, "por confirmar"
+    return fee, ""
+
+
 def parse_location(lat, lng):
     """Coordenadas del GPS del navegador -> "4.609700,-74.081700", o "" si no son válidas."""
     try:
@@ -737,8 +903,8 @@ def maps_url(location):
     return f"https://www.google.com/maps/search/?api=1&query={location}"
 
 
-def order_message(order_id, lines, name="", code="", note="", payment="", location="", accuracy=0,
-                  address="", photo_url=""):
+def order_message(order_id, lines, *, name="", code="", note="", payment="", location="", accuracy=0,
+                  address="", photo_url="", discount=0, delivery=0, delivery_note="", zone=""):
     """Texto del pedido que llega al WhatsApp de la tienda."""
     out = [f"Hola, {get_settings()['store_name']}. Quiero hacer el pedido {order_number(order_id)}:", ""]
     for line in lines:
@@ -751,12 +917,19 @@ def order_message(order_id, lines, name="", code="", note="", payment="", locati
         out.append(f"• {line['qty']} × {line_title(line)} — {price}")
     total, pending = order_totals(lines)
     out.append("")
-    if total and pending:
-        out.append(f"Total: {format_cop(total)} COP + productos con precio a confirmar")
-    elif total:
-        out.append(f"Total: {format_cop(total)} COP")
-    else:
+    if discount or delivery or delivery_note:                # cuentas claras: productos, descuento, domicilio
+        out.append(f"Productos: {format_cop(total) if total or not pending else 'por confirmar'}")
+        if discount:
+            out.append(f"Descuento de mi saldo: -{format_cop(discount)}")
+        if delivery or delivery_note:
+            out.append(f"Domicilio{f' ({zone})' if zone else ''}: {format_cop(delivery) if delivery else delivery_note}")
+    missing = [what for what, flag in (("productos con precio a confirmar", pending),
+                                       ("domicilio por confirmar", delivery_note == "por confirmar")) if flag]
+    if not total and pending:
         out.append("Total: por confirmar")
+    else:
+        out.append(f"Total: {format_cop(max(total - discount + delivery, 0))} COP"
+                   + (" + " + " y ".join(missing) if missing else ""))
     if payment:
         out.append(f"Pago: {payment}")
     if location:
@@ -768,7 +941,9 @@ def order_message(order_id, lines, name="", code="", note="", payment="", locati
     if name:
         out.append(f"Nombre: {name}")
     if code:
-        out.append(f"Mi código de cliente: {code} (quiero usar mis descuentos)")
+        # El código escrito en el carrito del menú abierto es para pedir sus descuentos.
+        wants = not discount and not private_mode()
+        out.append(f"Mi código de cliente: {code}" + (" (quiero usar mis descuentos)" if wants else ""))
     if note:
         out.append(f"Nota: {note}")
     return "\n".join(out)
@@ -779,7 +954,24 @@ def order_view(row):
     order = dict(row)
     order["lines"] = json.loads(order["items"])
     order["summary"] = ", ".join(f"{line['qty']} × {line_title(line)}" for line in order["lines"])
+    order["to_pay"] = max(order["total"] - order["discount"] + order["delivery"], 0)   # lo que paga el cliente
+    order["open_amount"] = bool(order["pending"]) or order["delivery_note"] == "por confirmar"
     return order
+
+
+def csv_cell(value):
+    """Valor para el respaldo en CSV. Un texto que empieza con =, +, - o @ va con un apóstrofo para
+    que Excel no lo tome como fórmula (un nombre así no debe ejecutar nada al abrir el archivo)."""
+    if value is None:
+        return ""
+    if isinstance(value, str) and value[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + value
+    return value
+
+
+def csv_date(value):
+    """'2026-11-04T10:30:00' -> '2026-11-04 10:30' (Excel lo reconoce como fecha)."""
+    return (value or "")[:16].replace("T", " ")
 
 
 def rate_limited(kind, limit_window):
@@ -1068,7 +1260,7 @@ def register_hooks(app):
             dt = datetime.fromisoformat(value)
         except (TypeError, ValueError):
             return value or ""
-        hour = f"{dt.hour % 12 or 12}:{dt.minute:02d} {'a. m.' if dt.hour < 12 else 'p. m.'}"
+        hour = hour_text(dt.hour * 60 + dt.minute)
         days = (local_now().date() - dt.date()).days
         day = {0: "Hoy", 1: "Ayer"}.get(days) or fecha(value)
         return f"{day}, {hour}"
@@ -1127,14 +1319,19 @@ def render_menu(shared=None):
             "price": int(p["price"]) if p["price"].isdecimal() else None,
             "label": format_cop(p["price"]) or p["price"],
             "options": options.get(p["id"], []),
+            "sold_out": bool(p["sold_out"]),
         }
         for p in products
     ]
     shares = {p["id"]: product_share(p, options.get(p["id"], [])) for p in products}
+    is_open, closed_reason = ordering_status()
     return render_template(
         "public/menu.html", products=products, categories=categories, menu_items=menu_items,
         options=options, shares=shares, shared=shared, og=shares[shared["id"]] if shared else None,
-        client=client, payment_methods=payment_methods(), today=local_now(),
+        client=client, balance=client_balance(client["id"]) if client else 0,
+        ordering_open=is_open, closed_reason=closed_reason, zones=delivery_zones(),
+        delivery_fee=setting_int("delivery_fee"), free_from=setting_int("free_delivery_from"), other_zone=OTHER_ZONE,
+        payment_methods=payment_methods(), today=local_now(),
     )
 
 
@@ -1199,7 +1396,10 @@ def register_public_routes(app):
                 flash("Demasiados intentos seguidos desde tu conexión. Espera unos minutos.", "error")
             else:
                 customer = find_customer_by_code(code)
-                if customer:
+                if customer and customer["paused"]:
+                    customer = None
+                    flash("Tu acceso está en pausa. Escríbele a la tienda.", "error")
+                elif customer:
                     session["customer_code"] = customer["code"]
                     session.permanent = True
                 else:
@@ -1209,7 +1409,18 @@ def register_public_routes(app):
         else:
             customer = current_client()
         stats = customer_stats(customer["id"]) if customer else None
-        return render_template("public/my_code.html", customer=customer, stats=stats,
+        orders = []
+        if customer:                               # sus pedidos: estado y "Repetir"
+            for row in get_db().execute(
+                "SELECT * FROM orders WHERE customer_id = ? ORDER BY id DESC LIMIT 10", (customer["id"],)
+            ).fetchall():
+                order = order_view(row)
+                order["repeat"] = json.dumps({
+                    f"{line['product_id']}-{line['option_id']}" if line.get("option_id") else str(line["product_id"]): line["qty"]
+                    for line in order["lines"]})
+                orders.append(order)
+        return render_template("public/my_code.html", customer=customer, stats=stats, orders=orders,
+                               client_statuses=CLIENT_STATUSES,
                                code=code or (customer["code"] if customer else ""))
 
     @app.route("/mi-codigo/salir", methods=["POST"])
@@ -1265,7 +1476,8 @@ def register_public_routes(app):
         """Guarda el pedido del carrito y abre el WhatsApp de la tienda con el pedido escrito.
 
         Mientras el pedido siga "nuevo", el mismo carrito (mismo `token`) lo actualiza: volver
-        a tocar el botón no lo duplica en el historial.
+        a tocar el botón no lo duplica en el historial. Con los pedidos en pausa, fuera de horario
+        o con el máximo del día completo no entran pedidos nuevos, pero sí se actualiza uno abierto.
         """
         whatsapp = get_settings()["whatsapp"]
         if not whatsapp:
@@ -1282,7 +1494,17 @@ def register_public_routes(app):
         token = request.form.get("token") or ""
         if not (16 <= len(token) <= 64 and token.isalnum() and token.isascii()):
             token = secrets.token_hex(16)
-        # Datos mínimos para el domicilio: cómo paga y dónde entregar (GPS o dirección).
+        db = get_db()
+        order = db.execute(
+            "SELECT id, photo FROM orders WHERE token = ? AND status = 'nuevo' ORDER BY id DESC LIMIT 1", (token,)
+        ).fetchone()
+        if not order:
+            is_open, reason = ordering_status()
+            if not is_open:
+                flash(reason, "error")
+                return redirect(url_for("menu"))
+        # Datos mínimos para el domicilio: cómo paga y dónde entregar (GPS o dirección), y su barrio
+        # si la tienda cobra el domicilio por barrio.
         payment = (request.form.get("payment") or "").strip()
         location = parse_location(request.form.get("lat"), request.form.get("lng"))
         address = (request.form.get("address") or "").strip()[:200]
@@ -1292,19 +1514,25 @@ def register_public_routes(app):
         if not location and len(address) < 6:
             flash("Comparte tu ubicación o escribe tu dirección para el domicilio.", "error")
             return redirect(url_for("menu"))
+        total, pending = order_totals(lines)
+        zone = (request.form.get("zone") or "").strip() if delivery_zones() else ""
+        cost = delivery_cost(zone, total)
+        if cost is None:
+            flash("Elige tu barrio para calcular el domicilio.", "error")
+            return redirect(url_for("menu"))
+        delivery, delivery_note = cost
         accuracy = request.form.get("accuracy", "")
         accuracy = int(float(accuracy)) if location and accuracy.replace(".", "", 1).isdecimal() and len(accuracy) < 10 else 0
         name = (request.form.get("name") or "").strip()[:60]
         code = normalize_code(request.form.get("code"))[:16]
         if private_mode() and client:               # el menú privado ya sabe quién pide
             name, code = name or client["name"], client["code"]
+        # Su saldo de descuentos solo lo usa quien entró con su código; se descuenta al confirmar el pedido.
+        discount = min(client_balance(client["id"]), total) if client and request.form.get("use_discount") else 0
+        if discount:
+            code = client["code"]
         note = (request.form.get("note") or "").strip()[:300]
         customer = find_customer_by_code(code)
-        total, pending = order_totals(lines)
-        db = get_db()
-        order = db.execute(
-            "SELECT id, photo FROM orders WHERE token = ? AND status = 'nuevo' ORDER BY id DESC LIMIT 1", (token,)
-        ).fetchone()
         if not order and rate_limited("pedido", ORDER_LIMIT):
             flash("Recibimos muchos pedidos seguidos desde tu conexión. Espera unos minutos.", "error")
             return redirect(url_for("menu"))
@@ -1317,23 +1545,29 @@ def register_public_routes(app):
             delete_image(order["photo"])                     # la reemplaza la nueva
         photo = photo or (order["photo"] if order else None)
         values = (json.dumps(lines, ensure_ascii=False), total, int(pending), name, code,
-                  customer["id"] if customer else None, note, payment, address, location, photo, now())
+                  customer["id"] if customer else None, note, payment, address, location, photo,
+                  discount, delivery, delivery_note, zone, now())
         if order:
             order_id = order["id"]
             db.execute(
                 "UPDATE orders SET items = ?, total = ?, pending = ?, name = ?, code = ?, customer_id = ?, "
-                "note = ?, payment = ?, address = ?, location = ?, photo = ?, updated_at = ? WHERE id = ?",
+                "note = ?, payment = ?, address = ?, location = ?, photo = ?, discount = ?, delivery = ?, "
+                "delivery_note = ?, zone = ?, updated_at = ? WHERE id = ?",
                 (*values, order_id),
             )
         else:
             order_id = db.insert(
                 "INSERT INTO orders (items, total, pending, name, code, customer_id, note, payment, address, "
-                "location, photo, updated_at, token, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "location, photo, discount, delivery, delivery_note, zone, updated_at, token, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (*values, token, values[-1]),
             )
         db.commit()
-        text = order_message(order_id, lines, name, code, note, payment, location, accuracy, address,
-                             image_url(photo, external=True) if photo else "")
+        text = order_message(
+            order_id, lines, name=name, code=code, note=note, payment=payment, location=location,
+            accuracy=accuracy, address=address, photo_url=image_url(photo, external=True) if photo else "",
+            discount=discount, delivery=delivery, delivery_note=delivery_note, zone=zone,
+        )
         return redirect(f"https://wa.me/{whatsapp}?text={quote(text, safe='')}", code=303)
 
 
@@ -1408,8 +1642,26 @@ def register_admin_routes(app):
             "SELECT o.*, c.name AS customer_name FROM orders o LEFT JOIN customers c ON c.id = o.customer_id "
             "WHERE o.status = 'nuevo' ORDER BY o.id DESC LIMIT 5"
         ).fetchall()
+        is_open, reason = ordering_status()
+        start, end = parse_hhmm(get_settings()["hours_open"]), parse_hhmm(get_settings()["hours_close"])
+        ordering = {
+            "open": is_open, "reason": reason, "paused": get_settings()["orders_paused"] == "1",
+            "today": orders_today(), "limit": setting_int("max_orders_day"),
+            "hours": f"{hour_text(start)} a {hour_text(end)}" if start is not None and end is not None and start != end else "",
+        }
         return render_template("admin/dashboard.html", stats=stats, top=top, recent=recent,
-                               orders=[order_view(o) for o in orders])
+                               orders=[order_view(o) for o in orders], ordering=ordering)
+
+    @app.route("/admin/pedidos/pausa", methods=["POST"])
+    @admin_required
+    def admin_orders_pause():
+        """Pausa rápida: cuando no das abasto, el menú deja de recibir pedidos nuevos."""
+        paused = get_settings()["orders_paused"] != "1"
+        set_setting("orders_paused", "1" if paused else "0")
+        get_db().commit()
+        flash("Pedidos en pausa: el menú no recibe pedidos nuevos hasta que los reanudes." if paused
+              else "Pedidos reanudados.", "ok")
+        return redirect(url_for("admin_dashboard"))
 
     # ---- pedidos
 
@@ -1463,11 +1715,28 @@ def register_admin_routes(app):
         if status not in ORDER_STATUSES:
             abort(400)
         db = get_db()
-        if not db.execute("SELECT 1 FROM orders WHERE id = ?", (order_id,)).fetchone():
+        order = db.execute(
+            "SELECT customer_id, discount, discount_used FROM orders WHERE id = ?", (order_id,)).fetchone()
+        if not order:
             abort(404)
         db.execute("UPDATE orders SET status = ? WHERE id = ?", (status, order_id))
+        message, kind = f"Pedido {order_number(order_id)} marcado como {ORDER_STATUSES[status].lower()}.", "ok"
+        # El saldo de descuentos que el cliente pidió usar se descuenta al confirmar (o entregar) y
+        # se le devuelve si el pedido se cancela.
+        if order["customer_id"] and order["discount"]:
+            if status in ("confirmado", "entregado") and not order["discount_used"]:
+                used = redeem_amount(order["customer_id"], order["discount"], f"Lo que sobró en el pedido {order_number(order_id)}")
+                db.execute("UPDATE orders SET discount_used = ? WHERE id = ?", (used, order_id))
+                message += f" Se descontaron {format_cop(used)} de su saldo."
+                if used < order["discount"]:
+                    message += f" Ojo: su saldo no alcanzaba; cóbrale {format_cop(order['discount'] - used)} más."
+                    kind = "error"
+            elif status == "cancelado" and order["discount_used"]:
+                add_reward(order["customer_id"], "refund", order["discount_used"], note=f"Pedido {order_number(order_id)}")
+                db.execute("UPDATE orders SET discount_used = 0 WHERE id = ?", (order_id,))
+                message += f" Le devolvimos {format_cop(order['discount_used'])} a su saldo."
         db.commit()
-        flash(f"Pedido {order_number(order_id)} marcado como {ORDER_STATUSES[status].lower()}.", "ok")
+        flash(message, kind)
         return redirect(url_for("admin_order_detail", order_id=order_id))
 
     @app.route("/admin/pedidos/<int:order_id>/borrar", methods=["POST"])
@@ -1481,6 +1750,121 @@ def register_admin_routes(app):
         db.commit()
         flash(f"Pedido {order_number(order_id)} eliminado.", "ok")
         return redirect(url_for("admin_orders"))
+
+    # ---- resumen y respaldo
+
+    @app.route("/admin/resumen")
+    @admin_required
+    def admin_summary():
+        """Cómo va la tienda en un período: ventas, pedidos, productos, clientes, referidos y descuentos.
+
+        Ventas = lo que pagan los pedidos confirmados o entregados (con descuento y domicilio).
+        """
+        days = request.args.get("dias", 30, type=int)
+        if days not in (7, 30, 90, 365):
+            days = 30
+        db = get_db()
+        today = local_now().date()
+        since = f"{today - timedelta(days=days - 1)}T00:00:00"
+        orders = [order_view(r) for r in db.execute(
+            "SELECT o.*, c.name AS customer_name FROM orders o LEFT JOIN customers c ON c.id = o.customer_id "
+            "WHERE o.created_at >= ? ORDER BY o.id", (since,)).fetchall()]
+        live = [o for o in orders if o["status"] != "cancelado"]
+        sold = [o for o in live if o["status"] in ("confirmado", "entregado")]
+        sales = sum(o["to_pay"] for o in sold)
+        products, clients = {}, {}
+        for o in live:
+            for line in o["lines"]:
+                item = products.setdefault(line_title(line), {"qty": 0, "amount": 0})
+                item["qty"] += line["qty"]
+                item["amount"] += (line["price"] or 0) * line["qty"]
+            if o["customer_id"]:
+                client = clients.setdefault(o["customer_id"], {"id": o["customer_id"], "name": o["customer_name"],
+                                                               "orders": 0, "amount": 0})
+                client["orders"] += 1
+                client["amount"] += o["to_pay"] if o["status"] in ("confirmado", "entregado") else 0
+        # Las últimas 8 semanas, de lunes a domingo.
+        monday = today - timedelta(days=today.weekday())
+        weeks = [{"start": monday - timedelta(weeks=n), "orders": 0, "sales": 0} for n in range(7, -1, -1)]
+        for o in map(order_view, db.execute(
+            "SELECT * FROM orders WHERE created_at >= ? AND status != 'cancelado'",
+            (f"{weeks[0]['start']}T00:00:00",)).fetchall()):
+            week = weeks[min((datetime.fromisoformat(o["created_at"]).date() - weeks[0]["start"]).days // 7, 7)]
+            week["orders"] += 1
+            week["sales"] += o["to_pay"] if o["status"] in ("confirmado", "entregado") else 0
+        best_week = max(w["sales"] for w in weeks) or 1
+        for week in weeks:
+            week["label"] = f"{week['start'].day} {MESES[week['start'].month - 1]}"
+            week["pct"] = round(week["sales"] * 100 / best_week)
+        referrers = db.execute(
+            "SELECT p.id, p.name, COUNT(*) AS total FROM customers c JOIN customers p ON p.id = c.referred_by "
+            "WHERE c.created_at >= ? GROUP BY p.id, p.name ORDER BY total DESC, p.name LIMIT 5", (since,)).fetchall()
+        summary = {
+            "orders": len(live), "sold": len(sold), "sales": sales,
+            "average": sales // len(sold) if sold else 0,
+            "statuses": {key: sum(o["status"] == key for o in orders) for key in ORDER_STATUSES},
+            "new_customers": db.execute(
+                "SELECT COUNT(*) FROM customers WHERE created_at >= ?", (since,)).fetchone()[0],
+            "referred": db.execute(
+                "SELECT COUNT(*) FROM customers WHERE created_at >= ? AND referred_by IS NOT NULL",
+                (since,)).fetchone()[0],
+            "given": db.execute(
+                "SELECT COALESCE(SUM(amount), 0) FROM rewards WHERE created_at >= ? "
+                "AND kind NOT IN ('remainder', 'refund')", (since,)).fetchone()[0],
+            "used": sum(o["discount_used"] for o in live),
+            "pending": db.execute(
+                "SELECT COALESCE(SUM(amount), 0) FROM rewards WHERE redeemed_at IS NULL").fetchone()[0],
+        }
+        top_products = sorted(products.items(), key=lambda item: (-item[1]["qty"], item[0]))[:8]
+        top_clients = sorted(clients.values(), key=lambda c: (-c["orders"], -c["amount"]))[:5]
+        return render_template("admin/summary.html", days=days, summary=summary, weeks=weeks,
+                               top_products=top_products, top_clients=top_clients, referrers=referrers)
+
+    @app.route("/admin/respaldo/<what>.csv")
+    @admin_required
+    def admin_backup(what):
+        """Copia de seguridad para abrir en Excel: clientes, pedidos o descuentos. CSV separado por
+        punto y coma, con la marca UTF-8 para que Excel lea bien las tildes."""
+        db = get_db()
+        if what == "clientes":
+            header = ["Código", "Nombre", "Teléfono", "Referido por", "Código de quien lo refirió", "Origen",
+                      "Acceso", "Registrado", "Referidos", "Saldo de descuentos", "Notas"]
+            rows = [[c["code"], c["name"], c["phone"], c["referrer_name"] or "", c["referrer_code"] or "",
+                     "Web" if c["origin"] == "web" else "Tienda", "En pausa" if c["paused"] else "Activo",
+                     csv_date(c["created_at"]), c["referrals"], c["balance"], c["notes"]]
+                    for c in db.execute(
+                        "SELECT c.*, p.name AS referrer_name, p.code AS referrer_code, "
+                        "(SELECT COUNT(*) FROM customers x WHERE x.referred_by = c.id) AS referrals, "
+                        "(SELECT COALESCE(SUM(w.amount), 0) FROM rewards w "
+                        " WHERE w.customer_id = c.id AND w.redeemed_at IS NULL) AS balance "
+                        "FROM customers c LEFT JOIN customers p ON p.id = c.referred_by ORDER BY c.id").fetchall()]
+        elif what == "pedidos":
+            header = ["Pedido", "Fecha", "Estado", "Cliente", "Código", "Productos", "Valor de productos",
+                      "Descuento", "Domicilio", "Total a pagar", "Pago", "Barrio", "Dirección", "Ubicación", "Nota"]
+            rows = [[order_number(o["id"]), csv_date(o["created_at"]), ORDER_STATUSES[o["status"]],
+                     o["name"] or o["customer_name"] or "", o["code"], o["summary"], o["total"], o["discount"],
+                     o["delivery"] or o["delivery_note"], o["to_pay"], o["payment"], o["zone"], o["address"],
+                     maps_url(o["location"]) if o["location"] else "", o["note"]]
+                    for o in map(order_view, db.execute(
+                        "SELECT o.*, c.name AS customer_name FROM orders o "
+                        "LEFT JOIN customers c ON c.id = o.customer_id ORDER BY o.id").fetchall())]
+        elif what == "descuentos":
+            header = ["Cliente", "Código", "Tipo", "Valor", "Nota", "Fecha", "Canjeado"]
+            rows = [[r["name"], r["code"], REWARD_LABELS.get(r["kind"], r["kind"]), r["amount"], r["note"],
+                     csv_date(r["created_at"]), csv_date(r["redeemed_at"])]
+                    for r in db.execute(
+                        "SELECT w.*, c.name, c.code FROM rewards w JOIN customers c ON c.id = w.customer_id "
+                        "ORDER BY w.id").fetchall()]
+        else:
+            abort(404)
+        out = io.StringIO()
+        writer = csv.writer(out, delimiter=";")
+        writer.writerow(header)
+        writer.writerows([csv_cell(value) for value in row] for row in rows)
+        resp = Response("\ufeff" + out.getvalue(), mimetype="text/csv")
+        resp.headers["Content-Disposition"] = f'attachment; filename="{what}-{local_now():%Y-%m-%d}.csv"'
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
 
     # ---- clientes
 
@@ -1602,6 +1986,34 @@ def register_admin_routes(app):
             flash("Datos actualizados.", "ok")
         return redirect(url_for("admin_customer_detail", customer_id=customer_id))
 
+    @app.route("/admin/clientes/<int:customer_id>/pausa", methods=["POST"])
+    @admin_required
+    def admin_customer_pause(customer_id):
+        """Pausar el acceso de un cliente sin borrarlo: no entra al menú privado ni a Mi código."""
+        db = get_db()
+        customer = db.execute("SELECT name, paused FROM customers WHERE id = ?", (customer_id,)).fetchone()
+        if not customer:
+            abort(404)
+        db.execute("UPDATE customers SET paused = ? WHERE id = ?", (0 if customer["paused"] else 1, customer_id))
+        db.commit()
+        flash(f"Reactivaste el acceso de {customer['name']}." if customer["paused"] else
+              f"Acceso de {customer['name']} en pausa: ya no entra al menú ni a Mi código.", "ok")
+        return redirect(url_for("admin_customer_detail", customer_id=customer_id))
+
+    @app.route("/admin/clientes/<int:customer_id>/codigo", methods=["POST"])
+    @admin_required
+    def admin_customer_new_code(customer_id):
+        """Código nuevo (si alguien regaló o publicó el suyo): el anterior deja de servir. Sus
+        referidos, descuentos y pedidos se conservan."""
+        db = get_db()
+        if not db.execute("SELECT 1 FROM customers WHERE id = ?", (customer_id,)).fetchone():
+            abort(404)
+        code = generate_code()
+        db.execute("UPDATE customers SET code = ? WHERE id = ?", (code, customer_id))
+        db.commit()
+        flash(f"Código nuevo: {code}. El anterior ya no sirve; mándale este por WhatsApp.", "ok")
+        return redirect(url_for("admin_customer_detail", customer_id=customer_id))
+
     @app.route("/admin/clientes/<int:customer_id>/borrar", methods=["POST"])
     @admin_required
     def admin_customer_delete(customer_id):
@@ -1707,10 +2119,11 @@ def register_admin_routes(app):
         ).fetchall()
         sizes = {row["product_id"]: (row["n"], row["low"]) for row in db.execute(
             "SELECT product_id, COUNT(*) AS n, MIN(price) AS low FROM product_options GROUP BY product_id").fetchall()}
-        active = [p for p in products if p["active"]]       # solo se comparte lo que está en el menú
-        options = options_by_product(p["id"] for p in active)
-        shares = {p["id"]: product_share(p, options.get(p["id"], [])) for p in active}
-        return render_template("admin/products.html", products=products, sizes=sizes, shares=shares)
+        options = options_by_product(p["id"] for p in products)
+        # solo se comparte lo que está en el menú
+        shares = {p["id"]: product_share(p, options.get(p["id"], [])) for p in products if p["active"]}
+        return render_template("admin/products.html", products=products, sizes=sizes, shares=shares,
+                               options=options)
 
     @app.route("/admin/menu/nuevo", methods=["GET", "POST"])
     @app.route("/admin/menu/<int:product_id>/editar", methods=["GET", "POST"])
@@ -1789,6 +2202,20 @@ def register_admin_routes(app):
         db.commit()
         return redirect(url_for("admin_products"))
 
+    @app.route("/admin/menu/<int:product_id>/agotado", methods=["POST"])
+    @admin_required
+    def admin_product_sold_out(product_id):
+        """Marca agotado (o disponible otra vez) un producto o, con `option_id`, una de sus medidas."""
+        db = get_db()
+        option_id = request.form.get("option_id", type=int)
+        if option_id:
+            db.execute("UPDATE product_options SET sold_out = 1 - sold_out WHERE id = ? AND product_id = ?",
+                       (option_id, product_id))
+        else:
+            db.execute("UPDATE products SET sold_out = 1 - sold_out WHERE id = ?", (product_id,))
+        db.commit()
+        return redirect(url_for("admin_products"))
+
     @app.route("/admin/menu/<int:product_id>/borrar", methods=["POST"])
     @admin_required
     def admin_product_delete(product_id):
@@ -1818,15 +2245,32 @@ def register_admin_routes(app):
         if request.method == "POST":
             form = {k: (request.form.get(k) or "").strip()
                     for k in ("store_name", "tagline", "code_prefix", "whatsapp", "referral_value",
-                              "payment_methods")}
+                              "payment_methods", "hours_open", "hours_close", "max_orders_day",
+                              "delivery_fee", "delivery_zones", "free_delivery_from")}
             form["self_signup"] = "1" if request.form.get("self_signup") else "0"
             form["private_menu"] = "1" if request.form.get("private_menu") else "0"
             whatsapp = normalize_whatsapp(form["whatsapp"])
             referral = parse_cop(form["referral_value"])
+            fee, free_from = parse_cop(form["delivery_fee"]), parse_cop(form["free_delivery_from"])
+            zone_lines = [line.strip() for line in form["delivery_zones"].splitlines() if line.strip()]
+            bad_zone = next((line for line in zone_lines if not parse_zone_line(line)[0]), None)
             new_pw = request.form.get("new_password", "")
             error = None
             if form["whatsapp"] and not 10 <= len(whatsapp) <= 15:
                 error = "Escribe el WhatsApp con el indicativo del país, por ejemplo 57 300 123 4567."
+            elif (form["hours_open"] or form["hours_close"]) and None in (parse_hhmm(form["hours_open"]),
+                                                                          parse_hhmm(form["hours_close"])):
+                error = "Horario de pedidos: pon la hora de abrir y la de cerrar (por ejemplo 10:00 y 21:00), o deja las dos vacías."
+            elif form["max_orders_day"] and not (form["max_orders_day"].isdecimal() and int(form["max_orders_day"]) <= 1000):
+                error = "Máximo de pedidos por día: escribe un número, o déjalo vacío para no tener límite."
+            elif fee is None or fee > MAX_PRICE:
+                error = "Valor del domicilio: escríbelo en pesos, por ejemplo 5000."
+            elif free_from is None or free_from > MAX_PRICE:
+                error = "Domicilio gratis desde: escríbelo en pesos, por ejemplo 100000."
+            elif bad_zone:
+                error = f"Revisa el barrio «{bad_zone[:40]}»: escríbelo así, Chapinero = 5000."
+            elif len(zone_lines) > 40:
+                error = "Puedes poner hasta 40 barrios."
             elif check_discount(referral):
                 error = "Valor de cada referido: " + check_discount(referral)
             elif new_pw and len(new_pw) < 6:
@@ -1842,6 +2286,12 @@ def register_admin_routes(app):
             set_setting("referral_value", str(referral))
             set_setting("self_signup", form["self_signup"])
             set_setting("private_menu", form["private_menu"])
+            set_setting("hours_open", form["hours_open"] if form["hours_close"] else "")
+            set_setting("hours_close", form["hours_close"] if form["hours_open"] else "")
+            set_setting("max_orders_day", str(int(form["max_orders_day"] or 0)))
+            set_setting("delivery_fee", str(fee))
+            set_setting("free_delivery_from", str(free_from))
+            set_setting("delivery_zones", "\n".join("{} = {}".format(*parse_zone_line(line)) for line in zone_lines))
             methods = [m.strip()[:30] for m in form["payment_methods"].split(",") if m.strip()][:10]
             set_setting("payment_methods", ", ".join(methods) or DEFAULT_SETTINGS["payment_methods"])
             if new_pw:

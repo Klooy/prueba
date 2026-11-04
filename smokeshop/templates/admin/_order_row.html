@@ -7,6 +7,6 @@
   </a>
   <span class="order-side">
     <span class="badge st-{{ o.status }}">{{ order_statuses[o.status] }}</span>
-    <b class="order-total">{{ (o.total|cop) if o.total else 'Por confirmar' }}{% if o.total and o.pending %} +{% endif %}</b>
+    <b class="order-total">{% if not o.total and o.pending %}Por confirmar{% else %}{{ o.to_pay|cop }}{% if o.open_amount %} +{% endif %}{% endif %}</b>
   </span>
 </li>
