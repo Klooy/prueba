@@ -81,7 +81,18 @@ def rewards_of(app, cid):
         ).fetchall()
 
 
-def test_public_menu_renders(client):
+def public_menu(app):
+    """Menú abierto a cualquiera, sin el modo privado (que viene activado)."""
+    from app import get_db, set_setting
+    with app.app_context():
+        set_setting("private_menu", "0")
+        get_db().commit()
+
+
+def test_public_menu_renders(app, client):
+    html = client.get("/").get_data(as_text=True)
+    assert "Entra con tu código" in html and "Menú del día" not in html     # privado por defecto
+    public_menu(app)
     resp = client.get("/")
     assert resp.status_code == 200
     assert "Menú del día" in resp.get_data(as_text=True)
@@ -203,6 +214,9 @@ def test_customer_lookup_by_code(app, client):
     code = code_of(app, ana)
     html = post(client, "/mi-codigo", {"code": code}).get_data(as_text=True)
     assert code in html and "Hola, Ana" in html and "5551112222" not in html
+    assert client.get(f"/r/{code}").status_code == 302        # menú privado: los enlaces llevan a la puerta
+    assert client.get("/r/ANK-ZZZZZ").status_code == 302       # sin decir si el código existe
+    public_menu(app)
     assert client.get(f"/r/{code}").status_code == 200
     assert client.get("/r/ANK-ZZZZZ").status_code == 404
 
@@ -241,11 +255,11 @@ def test_demo_seed_and_admin_password_env(tmp_path, monkeypatch):
     with app.app_context():
         seed_demo()  # una segunda vez no duplica
     client = app.test_client()
-    html = client.get("/").get_data(as_text=True)
+    assert post(client, "/admin/login", {"password": "desdeenv"}).status_code == 302
+    html = client.get("/").get_data(as_text=True)                         # el administrador ve el menú
     from app import DEMO_PRODUCTS
     assert html.count('<article class="product') == len(DEMO_PRODUCTS)
     assert "<b>Paquete x6</b><small>$24.000</small>" in html             # un producto de ejemplo con medidas
-    assert post(client, "/admin/login", {"password": "desdeenv"}).status_code == 302
     assert "Ana Ramírez" in client.get("/admin").get_data(as_text=True)
 
 
@@ -780,6 +794,7 @@ def test_signup_validation(app, client):
 
 def test_signup_without_referral_value_counts_but_gives_no_discount(app, client):
     login(client)
+    public_menu(app)
     ana = new_customer(client, "Ana", "3001112222")
     assert signup(client, "Beto", "3005551234", ref=code_of(app, ana)).status_code == 302
     assert customer_by_phone(app, "3005551234")["referred_by"] == ana and rewards_of(app, ana) == []
@@ -790,6 +805,7 @@ def test_signup_without_referral_value_counts_but_gives_no_discount(app, client)
 def test_signup_flood_is_limited(app, client, monkeypatch):
     import app as app_module
     monkeypatch.setattr(app_module, "SIGNUP_LIMIT", (1, 3600))
+    public_menu(app)
     assert signup(client, "Uno", "3001000001").status_code == 302
     html = signup(client, "Dos", "3001000002").get_data(as_text=True)
     assert "muchos registros seguidos" in html and customer_by_phone(app, "3001000002") is None
@@ -832,6 +848,7 @@ def test_deleting_fake_referral_removes_unused_points(app, client):
 
 def test_my_code_remembers_customer_until_logout(app, client):
     login(client)
+    public_menu(app)
     ana = new_customer(client, "Ana", "3001112222")
     code = code_of(app, ana)
     assert "Consultar" in client.get("/mi-codigo").get_data(as_text=True)
@@ -1184,3 +1201,103 @@ def test_share_photo_from_supabase(tmp_path, monkeypatch):
     image = meta(client.get("/p/1").get_data(as_text=True), "og:image")
     resp = client.get(image.replace("http://localhost", ""))
     assert resp.status_code == 200 and resp.data[:2] == b"\xff\xd8"
+
+
+def test_private_menu_only_for_clients(app, client):
+    from app import get_db
+    login(client)
+    save_settings(client, "3001234567", private_menu="1", referral_value="5000")
+    add_product(client, "Bong Osiris", "240.000")
+    ana = new_customer(client, "Ana Ramírez", "3001112222")
+    code = code_of(app, ana)
+    admin_menu = client.get("/").get_data(as_text=True)                  # la tienda ve todo, también compartir
+    assert "Bong Osiris" in admin_menu and admin_menu.count("data-share ") == 1
+    post(client, "/admin/logout")
+
+    gate = client.get("/")
+    html = gate.get_data(as_text=True)
+    assert "Entra con tu código" in html and 'name="next" value="/"' in html
+    assert "Bong Osiris" not in html and "240.000" not in html and "menu-data" not in html
+    product = client.get("/p/1").get_data(as_text=True)                   # el estado conserva su vista previa
+    assert meta(product, "og:title") == "Bong Osiris — $240.000" and 'name="next" value="/p/1"' in product
+    assert "menu-data" not in product
+
+    resp = place_order(client, "1:1")                                     # pedir sin entrar: no
+    assert resp.headers["Location"].endswith("/") and orders_of(app) == []
+    assert client.get("/registro").status_code == 404
+    assert client.get(f"/r/{code}").headers["Location"].endswith("/")
+
+    resp = post(client, "/mi-codigo", {"code": "ANK-ZZZZZ", "next": "/p/1"}, follow_redirects=True)
+    assert "No encontramos ese código" in resp.get_data(as_text=True)
+    resp = post(client, "/mi-codigo", {"code": code.lower(), "next": "/p/1"})
+    assert resp.headers["Location"].endswith("/p/1") and "Expires=" in resp.headers["Set-Cookie"]   # lo recuerda
+    menu = client.get("/p/1").get_data(as_text=True)
+    assert "Bong Osiris" in menu and "menu-data" in menu
+    assert f'Pides como <strong>Ana Ramírez</strong> · <span class="tel">{code}</span>' in menu
+    assert 'name="code" form="cart-form"' not in menu and "data-share " not in menu and "js/share.js" not in menu
+    assert f"Dice que va de tu parte, con tu código {code}" in menu and "Registrarme" not in menu
+
+    text = wa_text(place_order(client, "1:1"))                            # el pedido ya sabe quién es
+    assert f"Nombre: Ana Ramírez" in text and f"Mi código de cliente: {code}" in text
+    (order,) = orders_of(app)
+    assert order["customer_id"] == ana and order["code"] == code
+
+    mine = client.get("/mi-codigo").get_data(as_text=True)
+    assert "Invita a tus amigos" in mine and "/r/" not in mine and "Ver el menú del día" in mine
+    assert post(client, "/mi-codigo", {"code": "", "next": "//evil.com"}).status_code == 200   # no sale de la tienda
+
+    login(client)
+    post(client, f"/admin/clientes/{ana}/borrar")                        # borrarlo le quita el acceso
+    post(client, "/admin/logout")
+    with client.session_transaction() as s:
+        s["customer_code"] = code
+    assert "Entra con tu código" in client.get("/").get_data(as_text=True)
+    with app.app_context():
+        assert get_db().execute("SELECT COUNT(*) FROM customers").fetchone()[0] == 0
+
+
+def test_guessing_codes_and_passwords_is_limited(app, client, monkeypatch):
+    import app as app_module
+    login(client)
+    ana = new_customer(client, "Ana", "3001112222")
+    code = code_of(app, ana)
+    post(client, "/admin/logout")
+    monkeypatch.setattr(app_module, "CODE_LIMIT", (2, 600))
+    post(client, "/mi-codigo", {"code": "ANK-AAAAA"})
+    post(client, "/mi-codigo", {"code": "ANK-BBBBB"})
+    html = post(client, "/mi-codigo", {"code": code}).get_data(as_text=True)     # el bueno también espera
+    assert "Demasiados intentos" in html and "Hola, Ana" not in html
+
+    monkeypatch.setattr(app_module, "LOGIN_LIMIT", (2, 900))
+    post(client, "/admin/login", {"password": "malo1"})
+    post(client, "/admin/login", {"password": "malo2"})
+    html = post(client, "/admin/login", {"password": "secreto1"}).get_data(as_text=True)
+    assert "Demasiados intentos" in html and client.get("/admin").status_code == 302
+
+
+def test_hidden_from_search_engines(app, client):
+    robots = client.get("/robots.txt")
+    body = robots.get_data(as_text=True)
+    assert robots.mimetype == "text/plain" and "User-agent: *\nDisallow: /" in body
+    assert "User-agent: WhatsApp" in body and "Allow: /p/" in body          # las vistas previas sí
+    for page in ("/", "/mi-codigo", "/admin/login"):
+        resp = client.get(page)
+        assert resp.headers["X-Robots-Tag"] == "noindex, nofollow", page
+        assert '<meta name="robots" content="noindex, nofollow">' in resp.get_data(as_text=True), page
+
+
+def test_privacy_settings_and_code_message(app, client):
+    login(client)
+    ajustes = client.get("/admin/ajustes").get_data(as_text=True)
+    assert 'name="private_menu" value="1" checked' in ajustes and "no aparece en Google" in ajustes
+    assert "nadie se registra solo, aunque esté marcado" in ajustes
+    ana = new_customer(client, "Ana", "3001112222")
+    code = code_of(app, ana)
+    ficha = client.get(f"/admin/clientes/{ana}").get_data(as_text=True)
+    assert "Con%20%C3%A9l%20entras%20al%20men%C3%BA" in ficha and 'value="http://localhost/"' in ficha
+
+    save_settings(client, "3001234567")                                   # sin marcar: menú abierto
+    ajustes = client.get("/admin/ajustes").get_data(as_text=True)
+    assert 'name="private_menu" value="1" checked' not in ajustes and "aunque esté marcado" not in ajustes
+    ficha = client.get(f"/admin/clientes/{ana}").get_data(as_text=True)
+    assert "Comp%C3%A1rtelo" in ficha and f'value="http://localhost/r/{code}"' in ficha

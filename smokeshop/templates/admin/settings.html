@@ -44,6 +44,13 @@
     </div>
   </section>
 
+  <section class="card" id="privacidad">
+    <h2><svg class="icon" aria-hidden="true"><use href="#i-lock"/></svg> Privacidad</h2>
+    <label class="check"><input type="checkbox" name="private_menu" value="1" {% if settings.private_menu == '1' %}checked{% endif %} aria-describedby="private-hint"> Menú privado: solo tus clientes ven el menú y hacen pedidos</label>
+    <small class="hint" id="private-hint">Tú decides quién es cliente: lo registras en <a href="{{ url_for('admin_customer_new') }}">Clientes → Nuevo</a> y le mandas su código con el botón de WhatsApp de su ficha. Entra una vez con su código y su celular lo recuerda. Nadie se registra solo, los enlaces de invitación no abren el menú y los clientes no ven el botón de compartir. Si borras a un cliente, pierde el acceso.</small>
+    <p class="hint"><svg class="icon" aria-hidden="true"><use href="#i-eye"/></svg> La página no aparece en Google ni en otros buscadores.</p>
+  </section>
+
   <section class="card" id="referidos">
     <h2><svg class="icon" aria-hidden="true"><use href="#i-users"/></svg> Programa de referidos</h2>
     <div class="field">
@@ -53,6 +60,7 @@
       <small class="hint" id="referral-hint">Cada persona que se registre con el enlace o el código de un cliente le suma este valor en descuento a quien la invitó. Vale para los referidos nuevos; vacío = no suma.</small>
     </div>
     <label class="check"><input type="checkbox" name="self_signup" value="1" {% if settings.self_signup == '1' %}checked{% endif %}> Los clientes pueden registrarse solos desde la web</label>
+    {% if settings.private_menu == '1' %}<small class="hint">Con el menú privado nadie se registra solo, aunque esté marcado: los referidos los registras tú con el código de quien los refirió (botón <em>Registrar referido</em> en la ficha del cliente).</small>{% endif %}
   </section>
 
   <section class="card">
