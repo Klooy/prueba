@@ -52,10 +52,15 @@
       {% endif %}
     </p>
     {% if order.customer_id %}
-      {% if balance %}
+      {% if balance %}{# como el mensaje: con la casilla del carrito se descuenta solo al confirmar; en el
+         menú abierto, el código escrito en el carrito pide canjearlo a mano #}
       <div class="reward">
         <div class="pct">{{ balance|cop }}</div>
-        <div class="info"><strong>Descuentos para usar</strong><br><small>Pidió usarlos: canjéalos en <a href="{{ url_for('admin_customer_detail', customer_id=order.customer_id) }}">su ficha</a> al cobrar.</small></div>
+        <div class="info"><strong>Saldo de descuentos</strong><br><small>
+          {%- if order.discount and not order.discount_used %}Este pedido usa {{ order.discount|cop }}: se descuentan solos al confirmarlo, no los canjees aparte.
+          {%- elif order.discount or private_mode %}Le queda para sus próximos pedidos.
+          {%- else %}Pidió usarlo: canjéalo en <a href="{{ url_for('admin_customer_detail', customer_id=order.customer_id) }}">su ficha</a> al cobrar.{% endif -%}
+        </small></div>
       </div>
       {% else %}
       <p class="muted">No tiene descuentos pendientes.</p>
