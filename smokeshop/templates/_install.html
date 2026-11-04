@@ -1,0 +1,17 @@
+{# Ofrece instalar una app ("shop": Anubis Shop, la de los clientes; "panel": Anubis Panel). Sale
+   oculta y la muestra static/js/app.js: con el botón Instalar donde el navegador lo permite
+   (Android), con la guía de Safari en iPhone y, en la tarjeta fija, con la guía general en los
+   demás. Con `dismissible` es un aviso que se cierra con "Ahora no" (vuelve a los 30 días). #}
+{% macro install_box(kind, dismissible=False) %}
+<section class="card install{{ ' install-banner' if dismissible }}" data-install="{{ kind }}"{{ ' data-install-dismissible' if dismissible }} hidden>
+  <img class="install-icon" src="{{ url_for('static', filename='img/app/' ~ kind ~ '-192.png') }}" width="48" height="48" alt="">
+  <div class="install-text">
+    <strong>Instala {{ app_names[kind] }}</strong>
+    <small data-install-mode="button">{{ 'Maneja la tienda desde tu pantalla de inicio, como una app.' if kind == 'panel' else 'Abre el menú con un toque desde tu pantalla de inicio.' }}</small>
+    <small data-install-mode="ios" hidden>En Safari toca <svg class="icon" aria-label="Compartir"><use href="#i-ios-share"/></svg> <b>Compartir</b> y luego <b>Agregar a pantalla de inicio</b>.</small>
+    <small data-install-mode="other" hidden>En el menú del navegador toca <b>Instalar app</b> o <b>Agregar a pantalla de inicio</b>. Si ya la tienes, ábrela desde tu pantalla de inicio.</small>
+  </div>
+  <button class="btn small" type="button" data-install-mode="button" data-install-btn>Instalar</button>
+  {% if dismissible %}<button class="install-close" type="button" data-install-close aria-label="Ahora no"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>{% endif %}
+</section>
+{% endmacro %}

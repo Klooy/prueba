@@ -1,0 +1,33 @@
+{% extends "admin/_layout.html" %}
+{% block section %}ajustes{% endblock %}
+{% block title %}Verificación en dos pasos · {{ settings.store_name }}{% endblock %}
+{% block content %}
+<div class="page-head"><h1>Dos pasos</h1></div>
+
+<div class="narrow">
+  <section class="card gilded">
+    <h2>1. Agrega el panel a tu app de códigos</h2>
+    <p class="muted sec-text">Sirve Google Authenticator o Microsoft Authenticator (gratis en la tienda de apps) o, en iPhone, la app Contraseñas.</p>
+    <p class="sec-text"><strong>Desde otro equipo:</strong> abre la app y escanea este código.</p>
+    <div class="qr-box">{{ qr|safe }}</div>
+    <p class="sec-text mt"><strong>En este mismo celular:</strong> toca el botón o copia la clave y pégala en la app.</p>
+    <a class="btn block ghost" href="{{ uri }}"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Agregar a mi app de códigos</a>
+    <div class="share-box mt">
+      <input type="text" readonly value="{{ secret }}" id="secret" aria-label="Clave para la app de códigos" class="secret">
+      <button class="btn small ghost" type="button" data-copy="secret" aria-label="Copiar la clave"><svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg></button>
+    </div>
+  </section>
+
+  <form method="post" class="card">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    <h2>2. Escribe el código que te muestra</h2>
+    <div class="field">
+      <label for="code">Código de 6 dígitos de {{ app_names.panel }}</label>
+      <input class="code-input" id="code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="12" required>
+    </div>
+    <button class="btn block leaf" type="submit">Activar</button>
+  </form>
+  <p class="center mt"><a href="{{ url_for('admin_security') }}">Ahora no</a></p>
+</div>
+{% endblock %}
+{% block scripts %}{% include "_copy.html" %}{% endblock %}

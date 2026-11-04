@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{# La guarda la app instalada para mostrarla sin internet: no lleva datos de nadie. #}
+{% block title %}Sin conexión{% endblock %}
+{% block meta %}{% endblock %}
+{% block content %}
+<section class="card narrow center offline mt">
+  <img class="offline-mark" src="{{ url_for('static', filename='img/app/shop-192.png') }}" width="72" height="72" alt="">
+  <h1>Sin conexión</h1>
+  <p class="muted">Revisa tu internet y vuelve a intentarlo.</p>
+  <button class="btn block" type="button" data-retry>Reintentar</button>
+</section>
+{% endblock %}
+{% block footer %}{% endblock %}
+{% block scripts %}
+<script>
+  document.querySelector("[data-retry]").addEventListener("click", function () { location.reload(); });
+</script>
+{% endblock %}

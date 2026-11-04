@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_macros.html" import price %}
+{% from "_install.html" import install_box with context %}
 {% block title %}{{ shared.title if shared else 'Menú del día' }} · {{ settings.store_name }}{% endblock %}
 {% block meta %}{% if og %}{% include "public/_og.html" %}{% else %}{{ super() }}{% endif %}{% endblock %}
 {% block top_links %}{% include "public/_links.html" %}{% endblock %}
@@ -19,6 +20,7 @@
     <a class="btn ghost" href="{{ url_for('my_code') }}"><svg class="icon" aria-hidden="true"><use href="#i-ankh"/></svg>Mi código</a>
   </div>
 </section>
+{% if not is_admin %}{{ install_box('shop', dismissible=True) }}{% endif %}{# la tienda instala la del panel #}
 
 <div class="marquee-band" aria-hidden="true">
 <div class="marquee">

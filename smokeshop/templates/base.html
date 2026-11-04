@@ -18,8 +18,17 @@
   <meta property="og:image:width" content="1024">
   <meta property="og:image:height" content="1024">
   {% endblock %}
-  <link rel="icon" href="{{ url_for('static', filename='img/favicon-32.png') }}" type="image/png" sizes="32x32">
-  <link rel="apple-touch-icon" href="{{ url_for('static', filename='img/favicon-180.png') }}">
+  {# App instalable: la del panel en sus páginas, la de los clientes en las demás. Nombre e ícono
+     discretos (la silueta de Anubis). #}
+  {# use-credentials: en una vista previa protegida de Vercel, la ficha también necesita la sesión #}
+  <link rel="manifest" href="{{ url_for('panel_manifest' if app_kind == 'panel' else 'app_manifest') }}" crossorigin="use-credentials">
+  <link rel="icon" href="{{ url_for('static', filename='img/app/' ~ app_kind ~ '-32.png') }}" type="image/png" sizes="32x32">
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='img/app/' ~ app_kind ~ '-180.png') }}">
+  <meta name="application-name" content="{{ app_names[app_kind] }}">
+  <meta name="apple-mobile-web-app-title" content="{{ app_names[app_kind] }}">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <script>document.documentElement.classList.add("js")</script>
   <link rel="preload" href="{{ url_for('static', filename='fonts/cinzel-decorative-900.woff2') }}" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/fonts.css', v=asset_v) }}">
@@ -63,8 +72,9 @@
       <svg class="icon leafy"><use href="#i-leaf"/></svg>
       <svg class="icon"><use href="#i-eye"/></svg>
     </div>
-    {{ settings.store_name }} · Solo para mayores de 18 años<br>
-    <a class="staff-link" href="{{ url_for('admin_dashboard') }}"><svg class="icon" aria-hidden="true"><use href="#i-lock"/></svg>Acceso administrador</a>
+    {{ settings.store_name }} · Solo para mayores de 18 años
+    {# La entrada al panel no se anuncia: la tienda usa su app del panel o escribe /admin. #}
+    {% if is_admin %}<br><a class="staff-link" href="{{ url_for('admin_dashboard') }}"><svg class="icon" aria-hidden="true"><use href="#i-lock"/></svg>Ir al panel</a>{% endif %}
   </footer>
   {% endblock %}
   {% block overlay %}{% endblock %}
@@ -78,6 +88,7 @@
       els.forEach(function (e) { io.observe(e); });
     })();
   </script>
+  <script src="{{ url_for('static', filename='js/app.js', v=asset_v) }}" defer></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

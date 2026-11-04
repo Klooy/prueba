@@ -96,13 +96,14 @@
     {% if settings.private_menu == '1' %}<small class="hint">Con el menú privado nadie se registra solo, aunque esté marcado: los referidos los registras tú con el código de quien los refirió (botón <em>Registrar referido</em> en la ficha del cliente).</small>{% endif %}
   </section>
 
-  <section class="card">
-    <h2>Seguridad</h2>
-    <div class="field"><label for="new_password">Nueva contraseña <span class="muted">(déjala vacía para no cambiarla)</span></label><input id="new_password" name="new_password" type="password" autocomplete="new-password"></div>
-  </section>
-
   <button class="btn block mt" type="submit">Guardar ajustes</button>
 </form>
+
+<section class="card narrow mt" id="seguridad">
+  <h2><svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg> Seguridad del panel</h2>
+  <p class="muted" style="font-size:.9rem">Contraseña, verificación en dos pasos, quién ha entrado al panel y la app del panel para tu celular.</p>
+  <a class="btn block" href="{{ url_for('admin_security') }}"><svg class="icon" aria-hidden="true"><use href="#i-lock"/></svg>Abrir seguridad</a>
+</section>
 
 <section class="card narrow mt" id="datos">
   <h2><svg class="icon" aria-hidden="true"><use href="#i-lock"/></svg> Dónde se guardan los datos</h2>

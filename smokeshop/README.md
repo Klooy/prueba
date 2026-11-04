@@ -3,7 +3,7 @@
 Sistema privado para una smoke shop:
 
 - **Modo privado** (activado de entrada; **Ajustes → Privacidad**): solo tus clientes ven el menú y hacen pedidos. Tú decides quién es cliente: lo registras en el panel y le mandas su código con el botón de WhatsApp de su ficha. Quien abre la página sin código ve una puerta para escribirlo (nada de productos ni precios); el celular lo recuerda 60 días. El pedido llega con el nombre y el código de quien pide. Nadie se registra solo, los enlaces de invitación llevan a la puerta y los clientes no ven el botón de compartir (la tienda sí, desde el panel o el menú). Los referidos siguen sumando: el amigo le escribe a la tienda de parte de un cliente y tú lo registras con el código de ese cliente (botón **Registrar referido** en su ficha). Si borras a un cliente, pierde el acceso. Los enlaces de productos que compartes en tus estados conservan su vista previa con foto, pero llevan a la puerta.
-- **Fuera de buscadores y con freno a intentos**: la página no aparece en Google ni en otros buscadores (`robots.txt`, `<meta name="robots">` y la cabecera `X-Robots-Tag`), aunque WhatsApp sí puede armar las vistas previas. El panel y la puerta limitan los intentos seguidos desde una misma conexión (contraseña: 10 cada 15 minutos; códigos de cliente: 20 cada 10 minutos) para que nadie los adivine a la fuerza.
+- **Fuera de buscadores y con freno a intentos**: la página no aparece en Google ni en otros buscadores (`robots.txt`, `<meta name="robots">` y la cabecera `X-Robots-Tag`), aunque WhatsApp sí puede armar las vistas previas. El panel y la puerta limitan los intentos seguidos desde una misma conexión (panel: 10 intentos fallidos cada 15 minutos, contados en la base de datos para que también frenen en Vercel; códigos de cliente: 20 cada 10 minutos) para que nadie los adivine a la fuerza.
 - **Referidos**: los registras tú en el panel o, con el modo privado apagado, los clientes se registran solos en `/registro` (o desde el enlace de un amigo, `/r/<código>`). Cada uno recibe un código (`ANK-XXXXX`) y un enlace para invitar. Cada persona que se registra con el enlace o el código de alguien le suma a quien la invitó el **valor por referido**, en pesos, que defines en **Ajustes → Programa de referidos**; ese valor queda como un descuento para canjear en la tienda. En "Mi código" cada cliente ve su enlace, cuántos referidos tiene, cuánto vale cada uno y su saldo. El registro pide confirmar la mayoría de edad y autorizar el uso de los datos. En el panel, los clientes que se registraron por la web salen marcados como "Web", y si borras un registro falso se le quita a quien lo invitó el descuento que aún no había usado.
 - **Descuentos en pesos (COP)**: el administrador decide el valor de cada descuento. Lo asigna con el código del cliente en la página **Descuentos**, al registrar un referido (valor para quien refirió y bienvenida para el nuevo, ambos opcionales) o desde la ficha del cliente. Cada descuento se canjea una sola vez, uno por uno o con **Canjear todo**; el cliente ve su saldo en pesos en "Mi código".
 - **Menú del día**: sube novedades (foto, precio, categoría, destacado) sin llevar inventario. Ocultar no borra; "Vaciar menú" deja todo listo para el día siguiente.
@@ -17,10 +17,18 @@ Sistema privado para una smoke shop:
 - **Mis pedidos**: en "Mi código" el cliente ve sus últimos pedidos, si están recibidos, confirmados, entregados o cancelados, y con **Repetir** llena el carrito con lo mismo (lo que ya no hay o está agotado se quita solo) y lo abre.
 - **Acceso de cada cliente**: en su ficha, **Pausar acceso** le cierra el menú privado y "Mi código" sin borrarlo (conservas su historial), y **Cambiar código** le da uno nuevo si regaló o publicó el suyo: el anterior deja de servir.
 - **Resumen y respaldo**: desde el Inicio del panel, ventas (lo que pagan los pedidos confirmados o entregados), pedidos, ticket promedio y clientes nuevos de los últimos 7 días, 30 días, 3 meses o 1 año; ventas de las últimas 8 semanas; lo más pedido; los clientes que más piden; referidos y descuentos. Allí mismo se descargan **clientes, pedidos y descuentos** en CSV para abrir en Excel o Google Sheets (separado por punto y coma, con tildes; un texto que empieza con `=`, `+`, `-` o `@` va con un apóstrofo para que Excel no lo tome como fórmula).
+- **Apps instalables: Anubis Shop y Anubis Panel**: la página se instala en el celular como una app, sin Play Store ni App Store, con nombre e ícono discretos (la silueta de Anubis, sin hojas). **Anubis Shop** es la de los clientes: abre el menú a pantalla completa. **Anubis Panel** es la tuya: abre el panel, con el ícono en colores invertidos para distinguirlas. En Android sale el botón **Instalar** (en el menú, en "Mi código" y en el Inicio y la Seguridad del panel); en iPhone, la guía de Safari (**Compartir → Agregar a pantalla de inicio**), porque Apple no permite el botón. El aviso del menú se cierra con la X y no vuelve en 30 días; abierta como app, no se ofrece. El celular guarda solo el diseño (estilos, letras e íconos) para abrir rápido, y sin internet muestra "Sin conexión"; el menú, los pedidos y el panel siempre se cargan de internet y no quedan guardados en el teléfono. En iPhone la app instalada no comparte la sesión con Safari: la primera vez se escribe el código (o la contraseña) dentro de la app.
+- **Seguridad del panel** (**Ajustes → Seguridad**):
+  - **Verificación en dos pasos**: además de la contraseña, el panel pide el código de 6 dígitos que crea cada 30 segundos una app del celular (Google Authenticator, Microsoft Authenticator o Contraseñas del iPhone). Se activa escaneando un código QR (o con el botón **Agregar a mi app de códigos** en el mismo celular) y confirmando un código. Al activarla salen 8 **códigos de respaldo** de un solo uso para entrar si se pierde el celular; se pueden crear nuevos, y apagarla pide un código. Si se pierden el celular y también los códigos, se apaga desde Supabase (**SQL Editor**): `UPDATE settings SET value = '' WHERE key = 'admin_totp';` y se entra solo con la contraseña.
+  - **Contraseña** de al menos 10 caracteres: para cambiarla se pide la actual. Si la de antes es más corta, el panel avisa que conviene cambiarla.
+  - **Cerrar el panel en los demás equipos** con un botón; también se cierra solo al cambiar la contraseña o al activar los dos pasos.
+  - **Últimos ingresos**: cada entrada y cada intento fallido, con fecha, equipo (Android · Chrome, iPhone · Safari…) y dirección IP. Si hubo intentos fallidos que no fueron tuyos, el Inicio del panel lo avisa.
+  - La entrada al panel ya no aparece en las páginas de los clientes (solo la ve quien ya entró): entras con la app del panel o escribiendo `/admin`.
+  - El panel no se puede meter dentro de otra página (`X-Frame-Options`, `frame-ancestors`), no queda guardado en el navegador (`Cache-Control: no-store`) y las claves del panel nunca llegan a las plantillas.
 - **Historial de pedidos**: cada pedido enviado queda en **Pedidos** con el mismo número que llega al chat (`#0001`). Los precios se toman del menú del día en el servidor, no del navegador. Si el cliente vuelve a enviar el mismo carrito, se actualiza ese pedido en vez de duplicarlo. Se filtra por estado (nuevo, confirmado, entregado, cancelado) y se busca por número, nombre o código. La ficha del pedido muestra los productos, los datos de entrega (pago, botón para abrir el mapa, dirección y foto), la nota y, si el cliente escribió su código, sus descuentos pendientes. La barra del panel cuenta los pedidos nuevos y la ficha de cada cliente lista sus pedidos. Las horas van en hora de Colombia (UTC−5).
 - **Vista de los clientes**: menú del día filtrable por categoría y "Mi código" (referidos y descuentos; con el modo privado apagado, también el enlace de invitación para compartir por WhatsApp).
 - **Datos**: en local, un archivo SQLite; en producción, Postgres en Supabase (`DATABASE_URL`) y las fotos en Supabase Storage.
-- **Diseño**: mobile-first, estética de templo nocturno de lujo (oro, jade y humo violeta). El logo es una ilustración de Anubis con un amuleto de cannabis; `python tools/brand_assets.py imagen.jpg` genera a partir de ella la imagen de la portada, el logo del encabezado y los iconos.
+- **Diseño**: mobile-first, estética de templo nocturno de lujo (oro, jade y humo violeta). El logo es una ilustración de Anubis con un amuleto de cannabis; `python tools/brand_assets.py imagen.jpg` genera a partir de ella la imagen de la portada y el logo del encabezado. Los íconos de la pestaña y de las apps son la silueta discreta de Anubis: los genera `python tools/app_icons.py` (solo con Pillow).
 
 ## Ejecutar
 
@@ -30,7 +38,7 @@ pip install -r requirements-dev.txt
 python app.py              # http://localhost:5000
 ```
 
-La primera vez que entres a `/admin` te pedirá crear la contraseña del panel.
+La primera vez que entres a `/admin` te pedirá crear la contraseña del panel (al menos 10 caracteres).
 
 En producción:
 
@@ -51,7 +59,7 @@ Variables opcionales: `SECRET_KEY`, `DATABASE` (ruta del SQLite; por defecto `in
    | `DATABASE_URL` | Cadena de conexión de Supabase: **Connect → Transaction pooler** (puerto 6543), con tu contraseña |
    | `SUPABASE_URL` | `https://<proyecto>.supabase.co` |
    | `SUPABASE_SECRET_KEY` | Clave secreta (`sb_secret_…`) o `service_role` de **Project Settings → API Keys** |
-   | `ADMIN_PASSWORD` | Contraseña del panel |
+   | `ADMIN_PASSWORD` | Contraseña inicial del panel (después se cambia en **Ajustes → Seguridad**) |
    | `SECRET_KEY` | Un texto largo y aleatorio |
 
    Marca cada variable para *Production* y *Preview*: así las vistas previas usan la misma base de datos que la página publicada.
@@ -74,7 +82,13 @@ Sin `DATABASE_URL`, Vercel sirve como vista previa: arranca con productos y clie
 | `/pedido` (POST) | Clientes | Guarda el pedido del carrito y abre el WhatsApp de la tienda |
 | `/p/<id>` | Público | Enlace para compartir un producto: vista previa con su foto y el menú abierto en él |
 | `/p/<id>/<foto>.jpg` | WhatsApp y redes | Foto liviana del producto para la vista previa |
+| `/manifest.webmanifest` | Navegador | Ficha de la app de los clientes (Anubis Shop) |
+| `/admin/manifest.webmanifest` | Navegador | Ficha de la app del panel (Anubis Panel) |
+| `/sw.js` | Navegador | Service worker de las apps: guarda el diseño y la página "Sin conexión" |
+| `/sin-conexion` | Apps | Lo que se ve sin internet |
 | `/admin` | Dueño | Panel: pedidos, clientes, descuentos, menú, ajustes |
+| `/admin/login/codigo` | Dueño | Segundo paso al entrar: el código de 6 dígitos o uno de respaldo |
+| `/admin/seguridad` | Dueño | Verificación en dos pasos, contraseña, equipos con el panel abierto, app del panel e ingresos |
 | `/admin/resumen` | Dueño | Ventas, pedidos, productos, clientes, referidos y descuentos de un período |
 | `/admin/respaldo/<clientes\|pedidos\|descuentos>.csv` | Dueño | Copia de seguridad para Excel |
 
