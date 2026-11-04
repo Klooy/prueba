@@ -599,7 +599,7 @@ def test_admin_order_history(app, client, monkeypatch):
 
     detail = client.get("/admin/pedidos/1").get_data(as_text=True)
     assert "1 × Bong Osiris" in detail and "Ana Ramírez" in detail
-    assert "$15.000" in detail and "Descuentos para usar" in detail
+    assert "$15.000" in detail and "Pidió usarlo: canjéalo en" in detail          # escribió su código en el carrito
     assert 'href="https://wa.me/573005551111"' in detail
     assert client.get("/admin/pedidos/99").status_code == 404
 
@@ -1406,6 +1406,7 @@ def test_use_discount_balance_when_ordering(app, client):
     assert "Se descontaron $10.000 de su saldo." in resp.get_data(as_text=True) and balance() == 25000
     detail = shop.get("/admin/pedidos/2").get_data(as_text=True)
     assert "Descuento de su saldo" in detail and "se descuenta cuando confirmes" in detail
+    assert "Este pedido usa $35.000: se descuentan solos al confirmarlo" in detail and "canjéalo" not in detail
     resp = post(shop, "/admin/pedidos/2/estado", {"status": "confirmado"}, follow_redirects=True)
     html = resp.get_data(as_text=True)
     assert "Se descontaron $25.000" in html and "cóbrale $10.000 más" in html and balance() == 0
@@ -1422,6 +1423,10 @@ def test_use_discount_balance_when_ordering(app, client):
     assert kinds == [("remainder", 15000)]
     with app.app_context():
         assert get_db().execute("SELECT discount_used FROM orders WHERE id = 3").fetchone()[0] == 10000
+    assert "Le queda para sus próximos pedidos." in shop.get("/admin/pedidos/3").get_data(as_text=True)
+    place_order(client, "2:1")                                                    # sin usar su saldo
+    detail = shop.get("/admin/pedidos/4").get_data(as_text=True)
+    assert "$15.000" in detail and "Le queda para sus próximos pedidos." in detail and "canjéalo" not in detail
 
 
 def test_delivery_fee_by_zone_and_free_from(app, client):
