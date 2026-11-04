@@ -6,7 +6,9 @@
  * medida) ya no está en el menú se quita del pedido. "Pedir por WhatsApp" envía el pedido al servidor, que lo
  * guarda en el historial del panel con un número y abre el chat de la tienda con el pedido escrito.
  * Para el domicilio se pide el método de pago y la ubicación (GPS o dirección escrita); la foto de
- * la entrada es opcional y se reduce antes de subirla.
+ * la entrada es opcional y se reduce antes de subirla. Si la tienda cobra domicilio (fijo o por
+ * barrio) se suma al total, y quien entró con su código puede usar su saldo de descuentos. Lo
+ * agotado no se puede pedir; con los pedidos cerrados no se envía uno nuevo.
  */
 (function () {
   "use strict";
@@ -25,7 +27,9 @@
   var entries = [];
   var byKey = {};
   products.forEach(function (p) {
+    if (p.sold_out) return;                       // agotado: no se puede pedir
     (p.options && p.options.length ? p.options : [null]).forEach(function (o) {
+      if (o && o.sold_out) return;
       var entry = { key: o ? p.id + "-" + o.id : String(p.id), p: p, o: o, price: o ? o.price : p.price };
       entries.push(entry);
       byKey[entry.key] = entry;
@@ -52,6 +56,8 @@
   };
   var photoInput = drawer.querySelector("[data-photo]");
   var photoBox = drawer.querySelector("[data-photo-preview]");
+  var zoneSel = fields.zone || null;                      // barrio, si la tienda cobra por barrio
+  var discountBox = drawer.querySelector("[data-discount]");
 
   // ------------------------------------------------------------ almacenamiento
   function read(key) {
@@ -96,6 +102,7 @@
   if (fields.name) fields.name.value = profile.name || "";
   if (fields.code) fields.code.value = profile.code || "";
   if (fields.address) fields.address.value = profile.address || "";
+  if (zoneSel) zoneSel.value = profile.zone || "";
   Array.prototype.forEach.call(payments, function (r) { r.checked = r.value === profile.payment; });
 
   // ------------------------------------------------------------ cálculos
@@ -124,6 +131,26 @@
     if (line.e.o) return line.e.o.label + " · " + cop(line.e.price) + " c/u";
     if (line.e.price !== null) return cop(line.e.price) + " c/u";
     return line.e.p.label || "Precio a confirmar";
+  }
+
+  // Domicilio, igual que lo calcula el servidor: {amount, note} con note "", "gratis" o
+  // "por confirmar"; null si hay barrios y aún no elige el suyo.
+  function deliveryFor(subtotal) {
+    var general = parseInt(drawer.getAttribute("data-delivery-fee"), 10) || 0;
+    var freeFrom = parseInt(drawer.getAttribute("data-free-from"), 10) || 0;
+    var fee;
+    if (zoneSel) {
+      if (!zoneSel.value) return null;
+      var raw = zoneSel.options[zoneSel.selectedIndex].getAttribute("data-fee");
+      fee = raw === "" ? undefined : parseInt(raw, 10);
+    } else if (general) {
+      fee = general;
+    } else {
+      return { amount: 0, note: "" };                  // la tienda no cobra domicilio
+    }
+    if (fee === 0 || (freeFrom && subtotal >= freeFrom)) return { amount: 0, note: "gratis" };
+    if (fee === undefined) return { amount: 0, note: "por confirmar" };
+    return { amount: fee, note: "" };
   }
 
   // En la tarjeta, "Agregar" y − / + van con el producto o, si tiene medidas, con la medida marcada.
@@ -247,9 +274,28 @@
     renderItems(s);
     drawer.querySelector("[data-cart-empty]").hidden = !empty;
     drawer.querySelector("[data-cart-sum-row]").hidden = empty;
-    drawer.querySelector("[data-cart-sum]").textContent =
-      s.sum ? cop(s.sum) + (s.pending ? " +" : "") : "Por confirmar";
+    // Total a pagar: productos − saldo de descuentos que quiere usar + domicilio.
+    var discount = discountBox && discountBox.checked
+      ? Math.min(parseInt(discountBox.getAttribute("data-discount"), 10) || 0, s.sum) : 0;
+    var delivery = deliveryFor(s.sum);
+    var toConfirm = s.pending || (delivery && delivery.note === "por confirmar");
+    var showDelivery = delivery === null || delivery.amount > 0 || delivery.note !== "";
+    drawer.querySelector("[data-cart-breakdown]").hidden = empty || !(discount || showDelivery);
+    drawer.querySelector("[data-cart-subtotal]").textContent = s.sum ? cop(s.sum) + (s.pending ? " +" : "") : "Por confirmar";
+    drawer.querySelector('[data-cart-row="discount"]').hidden = !discount;
+    drawer.querySelector("[data-cart-discount-value]").textContent = "−" + cop(discount);
+    drawer.querySelector('[data-cart-row="delivery"]').hidden = !showDelivery;
+    drawer.querySelector("[data-cart-delivery]").textContent = delivery === null ? "Elige tu barrio"
+      : delivery.amount ? cop(delivery.amount) : delivery.note.charAt(0).toUpperCase() + delivery.note.slice(1);
+    drawer.querySelector("[data-cart-sum]").textContent = !s.sum && s.pending ? "Por confirmar"
+      : cop(Math.max(s.sum - discount + (delivery ? delivery.amount : 0), 0)) + (toConfirm ? " +" : "");
     drawer.querySelector("[data-cart-pending]").hidden = !s.pending || empty;
+    var freeFrom = parseInt(drawer.getAttribute("data-free-from"), 10) || 0;
+    var freeHint = drawer.querySelector("[data-free-hint]");
+    freeHint.hidden = empty || !(freeFrom && delivery && delivery.amount > 0 && s.sum < freeFrom);
+    if (!freeHint.hidden) freeHint.textContent = "Te faltan " + cop(freeFrom - s.sum) + " para el domicilio gratis.";
+    var discountRow = drawer.querySelector("[data-cart-discount-row]");
+    if (discountRow) discountRow.hidden = empty;
     drawer.querySelector("[data-cart-fields]").hidden = empty;
     drawer.querySelector("[data-cart-clear]").hidden = empty;
     var note = drawer.querySelector("[data-cart-dropped]");
@@ -259,7 +305,8 @@
         ? "Un producto de tu pedido anterior cambió o ya no está en el menú de hoy, y se quitó."
         : dropped + " productos de tu pedido anterior cambiaron o ya no están en el menú de hoy, y se quitaron.";
     }
-    if (sendBtn) sendBtn.disabled = empty;
+    // Cerrado (pausa, horario o máximo del día): no sale un pedido nuevo; sí reenviar el que ya mandó.
+    if (sendBtn) sendBtn.disabled = empty || (sendBtn.hasAttribute("data-closed") && !read(TOKEN_KEY));
   }
 
   // ------------------------------------------------------------ abrir / cerrar
@@ -346,13 +393,18 @@
       var missing = missingDelivery();
       showError("payment", missing.indexOf("payment") >= 0);
       showError("location", missing.indexOf("location") >= 0);
+      showError("zone", missing.indexOf("zone") >= 0);
       if (missing.length) {
         ev.preventDefault();
         var group = drawer.querySelector('[data-group="' + missing[0] + '"]');
         group.scrollIntoView({ block: "center", behavior: "smooth" });
-        var target = missing[0] === "payment" ? payments[0] : (geoBtn && !geoBtn.hidden ? geoBtn : fields.address);
+        var target = missing[0] === "payment" ? payments[0]
+          : missing[0] === "zone" ? zoneSel : (geoBtn && !geoBtn.hidden ? geoBtn : fields.address);
         if (target) target.focus({ preventScroll: true });
-        if (liveEl) liveEl.textContent = missing[0] === "payment" ? "Falta elegir cómo vas a pagar." : "Falta tu ubicación o tu dirección.";
+        if (liveEl) {
+          liveEl.textContent = { payment: "Falta elegir cómo vas a pagar.", location: "Falta tu ubicación o tu dirección.",
+            zone: "Falta elegir tu barrio." }[missing[0]];
+        }
         return;
       }
       formEl.querySelector("[data-cart-order]").value =
@@ -366,11 +418,12 @@
   drawer.addEventListener("input", function (ev) {
     var key = ev.target.getAttribute("data-cart-field");
     if (!key) return;
-    if (key === "name" || key === "code" || key === "payment" || key === "address") {
+    if (key === "name" || key === "code" || key === "payment" || key === "address" || key === "zone") {
       profile[key] = key === "code" ? ev.target.value.trim().toUpperCase() : ev.target.value.trim();
       write(PROFILE_KEY, profile);
     }
     if (key === "payment") showError("payment", false);
+    if (key === "zone") { showError("zone", false); render(); }
     if (key === "address" && !missingDelivery().length) showError("location", false);
   });
 
@@ -379,6 +432,7 @@
     var missing = [];
     if (payments.length && !drawer.querySelector('input[name="payment"]:checked')) missing.push("payment");
     if (geo && !geo.lat.value && (!fields.address || fields.address.value.trim().length < 6)) missing.push("location");
+    if (zoneSel && !zoneSel.value) missing.push("zone");
     return missing;
   }
 
@@ -471,5 +525,12 @@
     else if (!ev.shiftKey && document.activeElement === last) { ev.preventDefault(); first.focus(); }
   });
 
+  if (discountBox) discountBox.addEventListener("change", render);
+
   render();
+  // "Repetir" en Mi código llena el carrito y llega con #pedido: se abre el pedido de una vez.
+  if (location.hash === "#pedido" && Object.keys(cart).length) {
+    open();
+    if (window.history && history.replaceState) history.replaceState(null, "", location.pathname + location.search);
+  }
 })();

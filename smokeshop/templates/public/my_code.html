@@ -76,6 +76,26 @@
       <p class="muted mt" style="font-size:.88rem">Muestra tu código en caja y descuéntalos de tu compra.</p>
     {% endif %}
   </div>
+  {% if orders %}{# sus pedidos: cómo van y "Repetir" para pedir lo mismo #}
+  <section class="card mt my-orders">
+    <h3><svg class="icon" aria-hidden="true"><use href="#i-bag"/></svg> Mis pedidos</h3>
+    <ul class="list">
+      {% for o in orders %}
+      <li>
+        <span class="main">
+          <strong>{{ o.id|pedido }} · {% if not o.total and o.pending %}Por confirmar{% else %}{{ o.to_pay|cop }}{% if o.open_amount %} +{% endif %}{% endif %}</strong>
+          <small class="clip">{{ o.summary }}</small>
+          <small>{{ o.created_at|fecha_hora }}</small>
+        </span>
+        <span class="order-side">
+          <span class="badge st-{{ o.status }}">{{ client_statuses[o.status] }}</span>
+          {% if settings.whatsapp %}<button type="button" class="btn small ghost" data-repeat="{{ o.repeat }}" aria-label="Repetir el pedido {{ o.id|pedido }}">Repetir</button>{% endif %}
+        </span>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
   <form method="post" action="{{ url_for('my_code_forget') }}" class="center mt">
     <input type="hidden" name="csrf" value="{{ csrf_token }}">
     <button class="btn small ghost" type="submit">¿No eres {{ customer.name|first_name }}? Salir</button>
@@ -86,6 +106,18 @@
 {% block scripts %}
 {% include "_copy.html" %}
 {% if customer %}
+<script>
+  /* "Repetir": llena el carrito con ese pedido (lo agotado o lo que ya no está se quita solo) y lo abre. */
+  document.querySelectorAll("[data-repeat]").forEach(function (button) {
+    button.addEventListener("click", function () {
+      try {
+        localStorage.setItem("anubis-pedido", button.getAttribute("data-repeat"));
+        localStorage.removeItem("anubis-pedido-token");       // es un pedido nuevo
+      } catch (e) { /* modo privado del navegador */ }
+      location.href = {{ (url_for('menu') ~ '#pedido')|tojson }};
+    });
+  });
+</script>
 <script>
   /* El carrito del menú propone este código al pedir por WhatsApp. */
   (function () {

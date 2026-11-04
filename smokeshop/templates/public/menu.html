@@ -41,6 +41,11 @@
   </header>
 
   {% if products %}
+    {% if settings.whatsapp and not ordering_open %}
+    <div class="flash error notice closed-note" role="status">
+      <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg><span>{{ closed_reason }}</span>
+    </div>
+    {% endif %}
     {% if categories|length > 1 %}
     <div class="chips" role="toolbar" aria-label="Filtrar por categoría">
       <button class="chip" type="button" data-filter="" aria-pressed="true">Todo</button>
@@ -53,14 +58,18 @@
     <div class="products">
       {% for p in products %}
       {% set sh = shares[p.id] %}
-      <article class="product reveal tone-{{ loop.index0 % 3 }}{% if p.featured %} gilded{% endif %}{% if shared and shared.id == p.id %} shared{% endif %}" id="producto-{{ p.id }}" data-category="{{ p.category }}" style="--d: {{ loop.index0 % 3 }}">
+      {% set sizes = options.get(p.id) %}
+      {% set available = sizes|rejectattr('sold_out')|list if sizes else [] %}
+      {% set sold_out = p.sold_out or (sizes and not available) %}
+      <article class="product reveal tone-{{ loop.index0 % 3 }}{% if p.featured %} gilded{% endif %}{% if shared and shared.id == p.id %} shared{% endif %}{% if sold_out %} sold-out{% endif %}" id="producto-{{ p.id }}" data-category="{{ p.category }}" style="--d: {{ loop.index0 % 3 }}">
         <div class="arch">
           {% if p.image %}
             <img src="{{ image_url(p.image) }}" alt="{{ p.title }}" loading="lazy">
           {% else %}
             <div class="altar" aria-hidden="true"><span class="stem-glow"></span><svg class="icon"><use href="#i-leaf"/></svg></div>
           {% endif %}
-          {% if p.featured %}<span class="ribbon"><svg class="icon" aria-hidden="true"><use href="#i-star"/></svg>Destacado</span>{% endif %}
+          {% if sold_out %}<span class="ribbon sold">Agotado</span>
+          {% elif p.featured %}<span class="ribbon"><svg class="icon" aria-hidden="true"><use href="#i-star"/></svg>Destacado</span>{% endif %}
           <span class="idx" aria-hidden="true">{{ '%02d' % loop.index }}</span>
           {# Sin JS abre WhatsApp con el enlace; con JS, el menú de compartir del celular (estados incluidos).
              Con el menú privado solo lo ve la tienda: los clientes no reparten el menú. #}
@@ -74,25 +83,27 @@
           {% if p.category %}<span class="tag">{{ p.category }}</span>{% endif %}
           <h3>{{ p.title }}</h3>
           {% if p.description %}<p>{{ p.description }}</p>{% endif %}
-          {% set sizes = options.get(p.id) %}
           {% if sizes %}
+          {% set first = available[0] if available else sizes[0] %}
           <fieldset class="sizes">
             <legend>Elige la medida</legend>
             <div class="size-grid">
               {% for o in sizes %}
-              <label class="size">
-                <input type="radio" name="medida-{{ p.id }}" value="{{ o.id }}" data-size data-price="{{ o.price|cop }}"{% if loop.first %} checked{% endif %}>
-                <span><b>{{ o.label }}</b><small>{{ o.price|cop }}</small></span>
+              <label class="size{% if o.sold_out %} is-out{% endif %}">
+                <input type="radio" name="medida-{{ p.id }}" value="{{ o.id }}" data-size data-price="{{ o.price|cop }}"{% if o.sold_out %} disabled{% elif o.id == first.id %} checked{% endif %}>
+                <span><b>{{ o.label }}</b><small>{{ 'Agotada' if o.sold_out else o.price|cop }}</small></span>
                 <i class="size-qty" data-size-qty aria-hidden="true" hidden></i>
               </label>
               {% endfor %}
             </div>
           </fieldset>
-          <div class="leader"><span class="lbl">Precio</span><span class="dots"></span><span class="price"><span data-size-price>{{ sizes[0].price|cop }}</span><small>COP</small></span></div>
+          <div class="leader"><span class="lbl">Precio</span><span class="dots"></span><span class="price"><span data-size-price>{{ first.price|cop }}</span><small>COP</small></span></div>
           {% elif p.price %}
           <div class="leader"><span class="lbl">Precio</span><span class="dots"></span>{{ price(p.price) }}</div>
           {% endif %}
-          {% if settings.whatsapp %}
+          {% if settings.whatsapp and sold_out %}
+          <button type="button" class="btn small ghost add-btn sold-out-btn" disabled>Agotado por hoy</button>
+          {% elif settings.whatsapp %}
           <div class="add" data-product="{{ p.id }}">
             <button type="button" class="btn small ghost add-btn" data-add>
               <svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Agregar al pedido
@@ -159,7 +170,8 @@
 </button>
 
 <div class="cart-overlay" data-cart-close></div>
-<section class="cart" id="cart" role="dialog" aria-modal="true" aria-labelledby="cart-title">
+<section class="cart" id="cart" role="dialog" aria-modal="true" aria-labelledby="cart-title"
+         data-delivery-fee="{{ delivery_fee }}" data-free-from="{{ free_from }}">
   <header class="cart-head">
     <h2 id="cart-title"><svg class="icon" aria-hidden="true"><use href="#i-bag"/></svg> Tu <em>pedido</em></h2>
     <button type="button" class="cart-x" data-cart-close aria-label="Cerrar el pedido"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
@@ -168,10 +180,22 @@
     <p class="cart-note" data-cart-dropped hidden></p>
     <ul class="cart-items" data-cart-items></ul>
     <p class="cart-empty" data-cart-empty>Aún no has agregado productos. Toca <strong>Agregar al pedido</strong> en el menú.</p>
+    {% if client and balance %}{# su saldo de descuentos: lo usa si quiere; la tienda lo descuenta al confirmar #}
+    <label class="check cart-discount" data-cart-discount-row>
+      <input type="checkbox" name="use_discount" value="1" form="cart-form" data-discount="{{ balance }}">
+      <span>Usar mi saldo de descuentos: <strong>{{ balance|cop }}</strong></span>
+    </label>
+    {% endif %}
+    <dl class="cart-breakdown" data-cart-breakdown hidden>
+      <div><dt>Productos</dt><dd data-cart-subtotal></dd></div>
+      <div data-cart-row="discount" hidden><dt>Descuento</dt><dd data-cart-discount-value></dd></div>
+      <div data-cart-row="delivery" hidden><dt>Domicilio</dt><dd data-cart-delivery></dd></div>
+    </dl>
     <div class="cart-sum" data-cart-sum-row>
       <span>Total</span><strong data-cart-sum>$0</strong>
     </div>
     <p class="cart-pending" data-cart-pending hidden>Algunos productos tienen precio a confirmar por la tienda.</p>
+    <p class="cart-pending" data-free-hint hidden></p>
     <div class="cart-fields" data-cart-fields>
       <fieldset class="cart-group" data-group="payment">
         <legend class="form-group-title">¿Cómo vas a pagar?</legend>
@@ -194,6 +218,17 @@
           <textarea id="cart-address" name="address" form="cart-form" rows="2" maxlength="200" placeholder="Barrio, calle, torre, apartamento, color de la casa…" data-cart-field="address"></textarea>
         </div>
         <p class="cart-error" data-error="location" hidden>Comparte tu ubicación o escribe tu dirección.</p>
+        {% if zones %}{# la tienda cobra el domicilio por barrio #}
+        <div class="field" data-group="zone">
+          <label for="cart-zone">Tu barrio <span class="muted">(para el domicilio)</span></label>
+          <select id="cart-zone" name="zone" form="cart-form" data-cart-field="zone">
+            <option value="">Elige tu barrio…</option>
+            {% for name, fee in zones %}<option value="{{ name }}" data-fee="{{ fee }}">{{ name }} · {{ fee|cop if fee else 'gratis' }}</option>
+            {% endfor %}<option value="{{ other_zone }}" data-fee="{{ delivery_fee or '' }}">{{ other_zone }} · {{ delivery_fee|cop if delivery_fee else 'te confirmamos el valor' }}</option>
+          </select>
+        </div>
+        <p class="cart-error" data-error="zone" hidden>Elige tu barrio para calcular el domicilio.</p>
+        {% endif %}
         <small class="hint">Con el GPS el domiciliario llega directo. Solo la usamos para llevar tu pedido.</small>
       </fieldset>
 
@@ -228,6 +263,7 @@
     </div>
   </div>
   <footer class="cart-foot">
+    {% if not ordering_open %}<p class="cart-closed" role="status">{{ closed_reason }}</p>{% endif %}
     <p class="cart-to">Llega al WhatsApp de la tienda: <strong class="tel">{{ settings.whatsapp|phone }}</strong></p>
     {# El servidor guarda el pedido (historial del panel) y abre el chat con el pedido escrito. #}
     <form id="cart-form" method="post" action="{{ url_for('place_order') }}" target="_blank" rel="noopener"
@@ -238,7 +274,7 @@
       <input type="hidden" name="lat" data-geo-lat>
       <input type="hidden" name="lng" data-geo-lng>
       <input type="hidden" name="accuracy" data-geo-acc>
-      <button class="btn leaf block" type="submit" data-cart-send>
+      <button class="btn leaf block" type="submit" data-cart-send{% if not ordering_open %} data-closed{% endif %}>
         <svg class="icon" aria-hidden="true"><use href="#i-chat"/></svg>Pedir por WhatsApp
       </button>
     </form>

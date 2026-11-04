@@ -42,6 +42,39 @@
              placeholder="Efectivo, Nequi, Daviplata, Transferencia" aria-describedby="payment-hint">
       <small class="hint" id="payment-hint">Sepáralos con comas. Al pedir, el cliente elige uno, comparte su ubicación o escribe su dirección y, si quiere, agrega una foto de la entrada.</small>
     </div>
+    <p class="form-group-title mt">Cuándo recibes pedidos</p>
+    <div class="grid" style="grid-template-columns:1fr 1fr">
+      <div class="field"><label for="hours_open">Desde</label><input id="hours_open" name="hours_open" type="time" value="{{ settings.hours_open }}"></div>
+      <div class="field"><label for="hours_close">Hasta</label><input id="hours_close" name="hours_close" type="time" value="{{ settings.hours_close }}"></div>
+    </div>
+    <small class="hint hours-hint">Vacíos: a cualquier hora. Puede pasar la medianoche, por ejemplo de 6:00 p. m. a 2:00 a. m. Fuera de horario el menú se ve, pero no se puede pedir.</small>
+    <div class="field mt">
+      <label for="max_orders_day">Máximo de pedidos por día</label>
+      <input id="max_orders_day" name="max_orders_day" type="number" min="0" max="1000" inputmode="numeric"
+             value="{{ settings.max_orders_day if settings.max_orders_day != '0' else '' }}" placeholder="Sin límite" aria-describedby="max-hint">
+      <small class="hint" id="max-hint">Cuando se completa, el menú avisa que ya no hay cupo por hoy. Para pausar en cualquier momento usa el botón del Inicio del panel.</small>
+    </div>
+  </section>
+
+  <section class="card" id="domicilio">
+    <h2><svg class="icon" aria-hidden="true"><use href="#i-pin"/></svg> Domicilio</h2>
+    <div class="field">
+      <label for="delivery_fee">Valor del domicilio <span class="muted">(COP)</span></label>
+      <div class="input-prefix"><span>$</span><input id="delivery_fee" name="delivery_fee" type="text" inputmode="numeric"
+           value="{{ settings.delivery_fee if settings.delivery_fee != '0' else '' }}" placeholder="5000" autocomplete="off" aria-describedby="fee-hint"></div>
+      <small class="hint" id="fee-hint">Se suma al total del pedido. Vacío: no lo cobras desde la página. Si pones barrios, este es el valor de «Otro barrio» (vacío: se lo confirmas tú).</small>
+    </div>
+    <div class="field">
+      <label for="delivery_zones">Valor por barrio <span class="muted">(opcional, uno por línea)</span></label>
+      <textarea id="delivery_zones" name="delivery_zones" rows="4" placeholder="Chapinero = 5000&#10;Usaquén = 8000&#10;Centro = 0" aria-describedby="zones-hint">{{ settings.delivery_zones }}</textarea>
+      <small class="hint" id="zones-hint">Con barrios, el cliente elige el suyo al pedir. 0 = gratis en ese barrio.</small>
+    </div>
+    <div class="field">
+      <label for="free_delivery_from">Domicilio gratis desde <span class="muted">(COP, opcional)</span></label>
+      <div class="input-prefix"><span>$</span><input id="free_delivery_from" name="free_delivery_from" type="text" inputmode="numeric"
+           value="{{ settings.free_delivery_from if settings.free_delivery_from != '0' else '' }}" placeholder="100000" autocomplete="off" aria-describedby="free-hint"></div>
+      <small class="hint" id="free-hint">Si los productos suman este valor o más, el domicilio no se cobra.</small>
+    </div>
   </section>
 
   <section class="card" id="privacidad">

@@ -1044,8 +1044,9 @@ def test_product_sizes_in_panel_and_menu(app, client):
     assert html.count("checked") >= 1 and "<span data-size-price>$50.000</span>" in html   # marcada la primera
     assert html.count("data-add>") == 1                   # un solo botón: va con la medida marcada
     assert menu_data(html)["Premium Tangieland"]["options"] == [
-        {"id": 1, "label": "10 g", "price": 50000}, {"id": 2, "label": "20 g", "price": 90000},
-        {"id": 3, "label": "30 g", "price": 120000}]
+        {"id": 1, "label": "10 g", "price": 50000, "sold_out": False},
+        {"id": 2, "label": "20 g", "price": 90000, "sold_out": False},
+        {"id": 3, "label": "30 g", "price": 120000, "sold_out": False}]
 
     form = client.get("/admin/menu/1/editar").get_data(as_text=True)
     assert 'value="10 g"' in form and 'value="90000"' in form
@@ -1301,3 +1302,234 @@ def test_privacy_settings_and_code_message(app, client):
     assert 'name="private_menu" value="1" checked' not in ajustes and "aunque esté marcado" not in ajustes
     ficha = client.get(f"/admin/clientes/{ana}").get_data(as_text=True)
     assert "Comp%C3%A1rtelo" in ficha and f'value="http://localhost/r/{code}"' in ficha
+
+
+def fixed_clock(monkeypatch, moment):
+    """Pone el reloj de la tienda en `moment` (hora de Colombia)."""
+    import app as app_module
+    monkeypatch.setattr(app_module, "local_now", lambda: moment)
+
+
+def test_orders_pause_hours_and_daily_limit(app, client, monkeypatch):
+    fixed_clock(monkeypatch, datetime(2026, 11, 4, 23, 30))
+    login(client)
+    save_settings(client, "3001234567")
+    add_product(client, "Bong", "240000")
+
+    post(client, "/admin/pedidos/pausa")                                    # pausa rápida
+    menu = client.get("/").get_data(as_text=True)
+    assert "Por ahora no estamos recibiendo pedidos" in menu and "data-cart-send data-closed" in menu
+    html = post(client, "/pedido", {"items": "1:1", **DELIVERY}, follow_redirects=True).get_data(as_text=True)
+    assert "no estamos recibiendo pedidos" in html and orders_of(app) == []
+    assert "Reanudar pedidos" in client.get("/admin").get_data(as_text=True)
+    post(client, "/admin/pedidos/pausa")
+    assert "Pausar pedidos" in client.get("/admin").get_data(as_text=True)
+    assert place_order(client, "1:1", token="a" * 32).status_code == 303
+
+    save_settings(client, "3001234567", hours_open="10:00", hours_close="21:00")   # 11:30 p. m.: cerrado
+    html = post(client, "/pedido", {"items": "1:1", **DELIVERY}, follow_redirects=True).get_data(as_text=True)
+    assert "Recibimos pedidos de 10:00 a. m. a 9:00 p. m." in html
+    assert "pedido #0001" in wa_text(place_order(client, "1:2", token="a" * 32))   # el abierto sí se reenvía
+    save_settings(client, "3001234567", hours_open="18:00", hours_close="02:00")   # pasa la medianoche
+    assert place_order(client, "1:1", token="b" * 32).status_code == 303
+    dash = client.get("/admin").get_data(as_text=True)
+    assert "Horario: 6:00 p. m. a 2:00 a. m." in dash and "Hoy: 2 pedidos" in dash
+
+    save_settings(client, "3001234567", max_orders_day="2")                 # cupo del día completo
+    html = post(client, "/pedido", {"items": "1:1", **DELIVERY}, follow_redirects=True).get_data(as_text=True)
+    assert "Ya completamos los pedidos de hoy" in html and len(orders_of(app)) == 2
+    post(client, "/admin/pedidos/1/estado", {"status": "cancelado"})        # un cancelado libera cupo
+    assert place_order(client, "1:1").status_code == 303
+
+    for bad, message in [({"hours_open": "10:00"}, "Horario de pedidos"),
+                         ({"hours_open": "25:00", "hours_close": "21:00"}, "Horario de pedidos"),
+                         ({"max_orders_day": "muchos"}, "Máximo de pedidos por día")]:
+        assert message in save_settings(client, "3001234567", **bad).get_data(as_text=True)
+
+
+def test_sold_out_products_and_sizes(app, client):
+    login(client)
+    save_settings(client, "3001234567")
+    add_sized_product(client, "Flor", [("10 g", "50000"), ("20 g", "90000")])    # medidas 1 y 2
+    add_product(client, "Bong", "240000")
+    add_sized_product(client, "Otra", [("5 g", "30000")])                         # medida 3
+    post(client, "/admin/menu/2/agotado")                                         # se acabó el bong
+    post(client, "/admin/menu/1/agotado", {"option_id": "1"})                     # y la flor de 10 g
+    post(client, "/admin/menu/1/agotado", {"option_id": "3"})                     # medida de otro: nada
+    panel = client.get("/admin/menu").get_data(as_text=True)
+    assert '<b class="out">Agotado</b>' in panel and 'value="1" aria-pressed="true">10 g' in panel
+    assert 'value="3" aria-pressed="false">5 g' in panel
+
+    menu = client.get("/").get_data(as_text=True)
+    assert menu.count("Agotado por hoy") == 1 and '<span class="ribbon sold">Agotado</span>' in menu
+    assert 'value="1" data-size data-price="$50.000" disabled' in menu and "<small>Agotada</small>" in menu
+    assert "<span data-size-price>$90.000</span>" in menu                       # marcada la que sí hay
+    items = menu_data(menu)
+    assert items["Bong"]["sold_out"] is True and items["Flor"]["options"][0]["sold_out"] is True
+    text = wa_text(place_order(client, "1-1:1,1-2:1,2:1,3-3:1"))
+    assert "Flor (20 g)" in text and "10 g" not in text and "Bong" not in text and "Otra (5 g)" in text
+
+    post(client, "/admin/menu/1/agotado", {"option_id": "2"})                     # todas sus medidas: agotado
+    assert client.get("/").get_data(as_text=True).count("Agotado por hoy") == 2
+    post(client, "/admin/menu/2/agotado")                                          # volvió el bong
+    assert client.get("/").get_data(as_text=True).count("Agotado por hoy") == 1
+
+
+def test_use_discount_balance_when_ordering(app, client):
+    from app import get_db
+    shop = app.test_client()
+    login(shop)
+    save_settings(shop, "3001234567", private_menu="1")
+    add_product(shop, "Bong", "240000")
+    add_product(shop, "Papel", "10000")
+    ana = new_customer(shop, "Ana", "3001112222")
+    code = code_of(app, ana)
+    post(shop, f"/admin/clientes/{ana}/descuento", {"amount": "10000"})
+    post(shop, f"/admin/clientes/{ana}/descuento", {"amount": "25000"})
+
+    def balance():
+        with app.app_context():
+            return get_db().execute("SELECT COALESCE(SUM(amount), 0) FROM rewards "
+                                    "WHERE customer_id = ? AND redeemed_at IS NULL", (ana,)).fetchone()[0]
+
+    post(client, "/mi-codigo", {"code": code})
+    menu = client.get("/").get_data(as_text=True)
+    assert 'data-discount="35000"' in menu and "Usar mi saldo de descuentos" in menu
+    text = wa_text(place_order(client, "2:1", use_discount="1"))                   # no pasa del valor
+    assert "Productos: $10.000" in text and "Descuento de mi saldo: -$10.000" in text and "Total: $0 COP" in text
+    assert f"Mi código de cliente: {code}\n" in text + "\n"                       # sin "(quiero usar…)"
+    text = wa_text(place_order(client, "1:1", use_discount="1"))
+    assert "Descuento de mi saldo: -$35.000" in text and "Total: $205.000 COP" in text
+    assert balance() == 35000                                                     # aún nada descontado
+
+    resp = post(shop, "/admin/pedidos/1/estado", {"status": "confirmado"}, follow_redirects=True)
+    assert "Se descontaron $10.000 de su saldo." in resp.get_data(as_text=True) and balance() == 25000
+    detail = shop.get("/admin/pedidos/2").get_data(as_text=True)
+    assert "Descuento de su saldo" in detail and "se descuenta cuando confirmes" in detail
+    resp = post(shop, "/admin/pedidos/2/estado", {"status": "confirmado"}, follow_redirects=True)
+    html = resp.get_data(as_text=True)
+    assert "Se descontaron $25.000" in html and "cóbrale $10.000 más" in html and balance() == 0
+    post(shop, "/admin/pedidos/2/estado", {"status": "nuevo"})
+    post(shop, "/admin/pedidos/2/estado", {"status": "entregado"})                # no se descuenta dos veces
+    assert balance() == 0
+    resp = post(shop, "/admin/pedidos/2/estado", {"status": "cancelado"}, follow_redirects=True)
+    assert "Le devolvimos $25.000 a su saldo." in resp.get_data(as_text=True) and balance() == 25000
+
+    text = wa_text(place_order(client, "2:1", use_discount="1"))                   # 10.000 de un saldo de 25.000
+    post(shop, "/admin/pedidos/3/estado", {"status": "confirmado"})
+    assert balance() == 15000                                                     # lo que sobró sigue ahí
+    kinds = [tuple(r)[:2] for r in rewards_of(app, ana) if not r["redeemed_at"]]
+    assert kinds == [("remainder", 15000)]
+    with app.app_context():
+        assert get_db().execute("SELECT discount_used FROM orders WHERE id = 3").fetchone()[0] == 10000
+
+
+def test_delivery_fee_by_zone_and_free_from(app, client):
+    login(client)
+    save_settings(client, "3001234567", delivery_fee="6000", free_delivery_from="200.000",
+                  delivery_zones="Chapinero = 5.000\nCentro: 0\n\nUsaquén = 8k")
+    assert "Chapinero = 5000\nCentro = 0\nUsaquén = 8000</textarea>" in client.get("/admin/ajustes").get_data(as_text=True)
+    add_product(client, "Papel", "10000")
+    menu = client.get("/").get_data(as_text=True)
+    assert '<option value="Chapinero" data-fee="5000">Chapinero · $5.000</option>' in menu
+    assert '<option value="Centro" data-fee="0">Centro · gratis</option>' in menu
+    assert 'data-fee="6000">Otro barrio · $6.000</option>' in menu and 'data-free-from="200000"' in menu
+
+    html = post(client, "/pedido", {"items": "1:1", **DELIVERY}, follow_redirects=True).get_data(as_text=True)
+    assert "Elige tu barrio para calcular el domicilio" in html
+    text = wa_text(place_order(client, "1:1", zone="Chapinero"))
+    assert "Productos: $10.000\nDomicilio (Chapinero): $5.000\nTotal: $15.000 COP" in text
+    assert "Domicilio (Centro): gratis" in wa_text(place_order(client, "1:1", zone="Centro"))
+    assert "Domicilio (Usaquén): gratis" in wa_text(place_order(client, "1:20", zone="Usaquén"))   # 200.000
+    assert "Domicilio (Otro barrio): $6.000" in wa_text(place_order(client, "1:1", zone="Otro barrio"))
+    (*_, order) = orders_of(app)
+    assert (order["delivery"], order["zone"]) == (6000, "Otro barrio")
+    detail = client.get(f"/admin/pedidos/{order['id']}").get_data(as_text=True)
+    assert "Domicilio (Otro barrio)" in detail and "$16.000" in detail
+
+    save_settings(client, "3001234567", delivery_zones="Chapinero = 5000")       # sin valor general
+    text = wa_text(place_order(client, "1:1", zone="Otro barrio"))
+    assert "Domicilio (Otro barrio): por confirmar" in text
+    assert "Total: $10.000 COP + domicilio por confirmar" in text
+    save_settings(client, "3001234567", delivery_fee="4000")                       # fijo, sin barrios
+    assert "Domicilio: $4.000\nTotal: $14.000 COP" in wa_text(place_order(client, "1:1"))
+    html = save_settings(client, "3001234567", delivery_zones="Chapinero cinco mil").get_data(as_text=True)
+    assert "Revisa el barrio «Chapinero cinco mil»" in html
+
+
+def test_client_sees_orders_and_can_repeat(app, client):
+    from html import unescape
+    shop = app.test_client()
+    login(shop)
+    save_settings(shop, "3001234567")
+    add_sized_product(shop, "Flor", [("10 g", "50000")])
+    add_product(shop, "Bong", "240000")
+    ana = new_customer(shop, "Ana", "3001112222")
+    code = code_of(app, ana)
+    place_order(client, "1-1:2,2:1", code=code)
+    post(shop, "/admin/pedidos/1/estado", {"status": "confirmado"})
+    post(client, "/mi-codigo", {"code": code})
+    mine = client.get("/mi-codigo").get_data(as_text=True)
+    assert "Mis pedidos" in mine and "#0001 · $340.000" in mine and ">Confirmado<" in mine
+    assert json.loads(unescape(re.search(r'data-repeat="([^"]*)"', mine).group(1))) == {"1-1": 2, "2": 1}
+    assert 'location.href = "/#pedido"' in mine
+
+
+def test_pause_client_and_change_code(app, client):
+    shop = app.test_client()
+    login(shop)
+    save_settings(shop, "3001234567", private_menu="1")
+    add_product(shop, "Bong", "240000")
+    ana = new_customer(shop, "Ana", "3001112222")
+    code = code_of(app, ana)
+    post(client, "/mi-codigo", {"code": code})
+    assert "Bong" in client.get("/").get_data(as_text=True)
+
+    post(shop, f"/admin/clientes/{ana}/pausa")
+    assert "Entra con tu código" in client.get("/").get_data(as_text=True)          # en pausa: fuera
+    assert "Tu acceso está en pausa" in post(client, "/mi-codigo", {"code": code}).get_data(as_text=True)
+    assert "En pausa" in shop.get("/admin/clientes").get_data(as_text=True)
+    assert "Reactivar acceso" in shop.get(f"/admin/clientes/{ana}").get_data(as_text=True)
+    post(shop, f"/admin/clientes/{ana}/pausa")
+    assert "Bong" in client.get("/").get_data(as_text=True)                        # reactivada
+
+    resp = post(shop, f"/admin/clientes/{ana}/codigo", follow_redirects=True)
+    new = code_of(app, ana)
+    assert new != code and f"Código nuevo: {new}" in resp.get_data(as_text=True)
+    assert "Entra con tu código" in client.get("/").get_data(as_text=True)          # el viejo ya no sirve
+    assert "No encontramos ese código" in post(client, "/mi-codigo", {"code": code}).get_data(as_text=True)
+    post(client, "/mi-codigo", {"code": new})
+    assert "Bong" in client.get("/").get_data(as_text=True)
+
+
+def test_summary_and_excel_backup(app, client):
+    assert client.get("/admin/resumen").status_code == 302
+    assert client.get("/admin/respaldo/clientes.csv").status_code == 302          # solo la tienda
+    login(client)
+    save_settings(client, "3001234567")
+    add_product(client, "Bong", "240000")
+    add_product(client, "Papel", "10000")
+    ana = new_customer(client, '=HYPERLINK("http://x")', "3001112222")             # un nombre "fórmula"
+    beto = new_customer(client, "Beto", "3002223333", ref=code_of(app, ana))
+    place_order(client, "1:1,2:3", code=code_of(app, beto))
+    place_order(client, "2:1")
+    place_order(client, "2:2")
+    post(client, "/admin/pedidos/1/estado", {"status": "confirmado"})
+    post(client, "/admin/pedidos/3/estado", {"status": "cancelado"})
+
+    html = client.get("/admin/resumen?dias=7").get_data(as_text=True)
+    assert '<div class="num money">$270.000</div><div class="lbl">Ventas</div>' in html
+    assert '<div class="num">2</div><div class="lbl">Pedidos</div>' in html            # sin el cancelado
+    assert "4 unidades" in html and "Beto" in html and "Clientes nuevos: 2 · llegaron referidos: 1." in html
+    assert "Confirmados: 1 · Entregados: 0 · Cancelados: 1." in html
+    assert 'aria-current="true">7 días' in html and "Resumen y respaldo" in client.get("/admin").get_data(as_text=True)
+
+    resp = client.get("/admin/respaldo/clientes.csv")
+    body = resp.get_data(as_text=True)
+    assert resp.mimetype == "text/csv" and body.startswith("﻿Código;Nombre;Teléfono")
+    assert "attachment; filename=\"clientes-" in resp.headers["Content-Disposition"]
+    assert "'=HYPERLINK" in body and ";Activo;" in body                               # no se vuelve fórmula
+    pedidos = client.get("/admin/respaldo/pedidos.csv").get_data(as_text=True)
+    assert "#0001;" in pedidos and ";Confirmado;" in pedidos and ";Cancelado;" in pedidos
+    assert client.get("/admin/respaldo/descuentos.csv").get_data(as_text=True).startswith("﻿Cliente;")
+    assert client.get("/admin/respaldo/otra.csv").status_code == 404

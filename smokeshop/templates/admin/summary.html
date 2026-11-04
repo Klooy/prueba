@@ -1,0 +1,110 @@
+{% extends "admin/_layout.html" %}
+{% from "_macros.html" import money_stat %}
+{% block section %}inicio{% endblock %}
+{% block title %}Resumen · {{ settings.store_name }}{% endblock %}
+{% block content %}
+<div class="page-head"><h1>Resumen</h1></div>
+
+<div class="chips" role="toolbar" aria-label="Período">
+  {% for value, label in [(7, '7 días'), (30, '30 días'), (90, '3 meses'), (365, '1 año')] %}
+  <a class="chip" href="{{ url_for('admin_summary', dias=value) }}"{% if value == days %} aria-current="true"{% endif %}>{{ label }}</a>
+  {% endfor %}
+</div>
+
+<div class="stats">
+  <div class="stat">{{ money_stat(summary.sales) }}<div class="lbl">Ventas</div></div>
+  <div class="stat"><div class="num">{{ summary.orders }}</div><div class="lbl">Pedidos</div></div>
+  <div class="stat">{{ money_stat(summary.average) }}<div class="lbl">Ticket promedio</div></div>
+  <div class="stat"><div class="num">{{ summary.new_customers }}</div><div class="lbl">Clientes nuevos</div></div>
+</div>
+{% set plural = {'nuevo': 'nuevos', 'confirmado': 'confirmados', 'entregado': 'entregados', 'cancelado': 'cancelados'} %}
+<p class="muted summary-note">
+  Ventas: lo que pagan los pedidos confirmados o entregados, con descuento y domicilio.
+  Pedidos: todos menos los cancelados.
+  {% for key in order_statuses %}{{ plural[key]|capitalize }}: {{ summary.statuses[key] }}{{ ' · ' if not loop.last }}{% endfor %}.
+</p>
+
+<section class="card mt">
+  <h2><svg class="icon" aria-hidden="true"><use href="#i-chart"/></svg> Ventas por semana</h2>
+  <ul class="bars">
+    {% for w in weeks %}
+    <li>
+      <span class="bar-label">{{ w.label }}</span>
+      <span class="bar-track" aria-hidden="true"><span class="bar-fill" style="width: {{ w.pct }}%"></span></span>
+      <span class="bar-value">{{ w.sales|cop }}<small>{{ w.orders }} {{ 'pedido' if w.orders == 1 else 'pedidos' }}</small></span>
+    </li>
+    {% endfor %}
+  </ul>
+  <p class="muted summary-note">Semanas de lunes a domingo; la última es la actual.</p>
+</section>
+
+<div class="grid grid-2 mt">
+  <section class="card gilded">
+    <h2><svg class="icon" aria-hidden="true"><use href="#i-star"/></svg> Lo más pedido</h2>
+    {% if top_products %}
+    <ol class="list">
+      {% for name, item in top_products %}
+      <li>
+        <span class="main"><strong>{{ name }}</strong><small>{{ item.qty }} {{ 'unidad' if item.qty == 1 else 'unidades' }}</small></span>
+        {% if item.amount %}<b class="order-total">{{ item.amount|cop }}</b>{% endif %}
+      </li>
+      {% endfor %}
+    </ol>
+    {% else %}
+    <p class="muted">Sin pedidos en este período.</p>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <h2><svg class="icon" aria-hidden="true"><use href="#i-users"/></svg> Clientes que más piden</h2>
+    {% if top_clients %}
+    <ol class="list">
+      {% for c in top_clients %}
+      <li>
+        <a class="rowlink main" href="{{ url_for('admin_customer_detail', customer_id=c.id) }}"><strong>{{ c.name }}</strong><small>{{ c.orders }} {{ 'pedido' if c.orders == 1 else 'pedidos' }}</small></a>
+        {% if c.amount %}<b class="order-total">{{ c.amount|cop }}</b>{% endif %}
+      </li>
+      {% endfor %}
+    </ol>
+    {% else %}
+    <p class="muted">Aún no hay pedidos de clientes con código en este período.</p>
+    {% endif %}
+  </section>
+</div>
+
+<div class="grid grid-2 mt">
+  <section class="card">
+    <h2><svg class="icon" aria-hidden="true"><use href="#i-ankh"/></svg> Referidos</h2>
+    <p class="muted" style="font-size:.9rem">Clientes nuevos: {{ summary.new_customers }} · llegaron referidos: {{ summary.referred }}.</p>
+    {% if referrers %}
+    <ol class="list">
+      {% for r in referrers %}
+      <li>
+        <a class="rowlink main" href="{{ url_for('admin_customer_detail', customer_id=r.id) }}"><strong>{{ r.name }}</strong></a>
+        <span class="badge">{{ r.total }} ref.</span>
+      </li>
+      {% endfor %}
+    </ol>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <h2><svg class="icon" aria-hidden="true"><use href="#i-ticket"/></svg> Descuentos</h2>
+    <ul class="list">
+      <li><span class="main"><strong>Entregados</strong><small>Por referidos, de bienvenida o asignados</small></span><b class="order-total">{{ summary.given|cop }}</b></li>
+      <li><span class="main"><strong>Usados en pedidos</strong><small>Descontados al confirmar los pedidos</small></span><b class="order-total">{{ summary.used|cop }}</b></li>
+      <li><span class="main"><strong>Saldo por usar hoy</strong><small>De todos los clientes</small></span><b class="order-total">{{ summary.pending|cop }}</b></li>
+    </ul>
+  </section>
+</div>
+
+<section class="card gilded mt" id="respaldo">
+  <h2><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg> Respaldo</h2>
+  <p class="muted" style="font-size:.9rem">Descarga tus datos para guardar una copia o abrirlos en Excel o Google Sheets. Hazlo, por ejemplo, cada semana. Son datos personales de tus clientes: guárdalos en un lugar seguro.</p>
+  <div class="btn-row">
+    <a class="btn small" href="{{ url_for('admin_backup', what='clientes') }}" download><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg>Clientes</a>
+    <a class="btn small ghost" href="{{ url_for('admin_backup', what='pedidos') }}" download><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg>Pedidos</a>
+    <a class="btn small ghost" href="{{ url_for('admin_backup', what='descuentos') }}" download><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg>Descuentos</a>
+  </div>
+</section>
+{% endblock %}

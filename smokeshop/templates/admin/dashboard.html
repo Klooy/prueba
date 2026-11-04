@@ -24,6 +24,20 @@
 </div>
 {% endif %}
 
+{% if settings.whatsapp %}{# pausa rápida para cuando no das abasto #}
+<section class="card orders-switch{% if not ordering.open %} is-closed{% endif %}">
+  <div class="main">
+    <p class="form-group-title"><svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg> Pedidos</p>
+    <strong>{{ 'Recibiendo pedidos' if ordering.open else 'No se reciben pedidos nuevos' }}</strong>
+    <small>{% if not ordering.open %}{{ ordering.reason }} {% endif %}Hoy: {{ ordering.today }} {{ 'pedido' if ordering.today == 1 else 'pedidos' }}{% if ordering.limit %} de {{ ordering.limit }}{% endif %}{% if ordering.hours %} · Horario: {{ ordering.hours }}{% endif %}</small>
+  </div>
+  <form method="post" action="{{ url_for('admin_orders_pause') }}" class="inline">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    <button class="btn small {{ 'leaf' if ordering.paused else 'danger' }}" type="submit">{{ 'Reanudar pedidos' if ordering.paused else 'Pausar pedidos' }}</button>
+  </form>
+</section>
+{% endif %}
+
 <div class="stats">
   <div class="stat"><div class="num">{{ stats.customers }}</div><div class="lbl">Clientes</div></div>
   <div class="stat"><div class="num">{{ stats.month }}</div><div class="lbl">Referidos este mes</div></div>
@@ -35,6 +49,7 @@
   <a class="btn" href="{{ url_for('admin_customer_new') }}"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Nuevo cliente</a>
   <a class="btn leaf" href="{{ url_for('admin_quick_redeem') }}"><svg class="icon" aria-hidden="true"><use href="#i-ticket"/></svg>Asignar descuento</a>
   <a class="btn ghost" href="{{ url_for('admin_product_form') }}"><svg class="icon" aria-hidden="true"><use href="#i-scroll"/></svg>Subir novedad</a>
+  <a class="btn ghost" href="{{ url_for('admin_summary') }}"><svg class="icon" aria-hidden="true"><use href="#i-chart"/></svg>Resumen y respaldo</a>
 </div>
 
 {% if orders %}
