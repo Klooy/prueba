@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_macros.html" import money_stat %}
+{% from "_install.html" import install_box with context %}
 {% block title %}Mi código · {{ settings.store_name }}{% endblock %}
 {% block top_links %}<a href="{{ url_for('menu') }}"><svg class="icon" aria-hidden="true"><use href="#i-scroll"/></svg>Menú</a>{% endblock %}
 {% block content %}
@@ -73,9 +74,10 @@
           <div class="info"><strong>{{ reward_labels[r.kind] }}</strong><br><small>{{ r.note or ('Desde el ' ~ (r.created_at|fecha)) }}</small></div>
         </div>
       {% endfor %}
-      <p class="muted mt" style="font-size:.88rem">Muestra tu código en caja y descuéntalos de tu compra.</p>
+      <p class="muted mt" style="font-size:.88rem">{% if settings.whatsapp %}Úsalos al pedir: en el carrito marca <strong>Usar mi saldo de descuentos</strong>. También puedes mostrar tu código en caja.{% else %}Muestra tu código en caja y descuéntalos de tu compra.{% endif %}</p>
     {% endif %}
   </div>
+  {{ install_box('shop') }}
   {% if orders %}{# sus pedidos: cómo van y "Repetir" para pedir lo mismo #}
   <section class="card mt my-orders">
     <h3><svg class="icon" aria-hidden="true"><use href="#i-bag"/></svg> Mis pedidos</h3>

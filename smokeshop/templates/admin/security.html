@@ -1,0 +1,98 @@
+{% extends "admin/_layout.html" %}
+{% from "_install.html" import install_box with context %}
+{% block section %}ajustes{% endblock %}
+{% block title %}Seguridad · {{ settings.store_name }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Seguridad</h1>
+  <a class="btn small ghost" href="{{ url_for('admin_settings') }}"><svg class="icon" aria-hidden="true"><use href="#i-gear"/></svg>Ajustes</a>
+</div>
+
+<div class="narrow">
+  <section class="card gilded" id="dos-pasos">
+    <h2><svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg> Verificación en dos pasos</h2>
+    {% if totp_on %}
+    <p><span class="badge faience">Activa</span></p>
+    <p class="muted sec-text">Para entrar al panel se necesita tu contraseña y el código que crea tu celular.
+      Te quedan <strong>{{ recovery }}</strong> {{ 'código' if recovery == 1 else 'códigos' }} de respaldo, para entrar si pierdes el celular.</p>
+    <form method="post" action="{{ url_for('admin_new_recovery_codes') }}">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <div class="field">
+        <label for="code-new">Código de tu app</label>
+        <input class="code-input" id="code-new" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="12" required>
+      </div>
+      <button class="btn block ghost" type="submit">Crear códigos de respaldo nuevos</button>
+    </form>
+    <details class="danger-zone mt">
+      <summary>Apagar la verificación en dos pasos</summary>
+      <form method="post" action="{{ url_for('admin_totp_disable') }}">
+        <input type="hidden" name="csrf" value="{{ csrf_token }}">
+        <div class="field">
+          <label for="code-off">Código de tu app (o uno de respaldo)</label>
+          <input class="code-input" id="code-off" name="code" type="text" autocomplete="one-time-code" maxlength="12" required>
+        </div>
+        <button class="btn small danger" type="submit">Apagarla</button>
+      </form>
+    </details>
+    {% else %}
+    <p><span class="badge dim">Apagada</span></p>
+    <p class="muted sec-text">Además de la contraseña, el panel te pedirá un código de 6 dígitos que tu celular crea cada 30 segundos.
+      Así, aunque alguien sepa o adivine tu contraseña, no puede entrar sin tu celular.</p>
+    <a class="btn block leaf" href="{{ url_for('admin_totp_setup') }}"><svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg>Activarla</a>
+    {% endif %}
+  </section>
+
+  <section class="card" id="contrasena">
+    <h2><svg class="icon" aria-hidden="true"><use href="#i-lock"/></svg> Contraseña</h2>
+    {% if password_short %}
+    <div class="flash error sec-flash">
+      <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>
+      <span>Tu contraseña es corta. Cámbiala por una de al menos {{ password_min }} caracteres.</span>
+    </div>
+    {% endif %}
+    <form method="post" action="{{ url_for('admin_change_password') }}">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <div class="field"><label for="current">Contraseña actual</label><input id="current" name="current" type="password" autocomplete="current-password" required></div>
+      <div class="field">
+        <label for="new_password">Nueva contraseña</label>
+        <input id="new_password" name="new_password" type="password" autocomplete="new-password" minlength="{{ password_min }}" required>
+        <small class="hint">Al menos {{ password_min }} caracteres; mejor una frase que solo tú sepas. Al cambiarla, el panel se cierra en los demás equipos.</small>
+      </div>
+      <div class="field"><label for="confirm">Repite la nueva</label><input id="confirm" name="confirm" type="password" autocomplete="new-password" minlength="{{ password_min }}" required></div>
+      <button class="btn block" type="submit">Cambiar contraseña</button>
+    </form>
+  </section>
+
+  <section class="card" id="sesiones">
+    <h2><svg class="icon" aria-hidden="true"><use href="#i-users"/></svg> Equipos con el panel abierto</h2>
+    <p class="muted sec-text">¿Dejaste el panel abierto en otro celular o computador, o crees que alguien más entró? Ciérralo en todos los demás; en este sigues dentro.</p>
+    <form method="post" action="{{ url_for('admin_close_sessions') }}"
+          onsubmit="return confirm('¿Cerrar el panel en todos los demás equipos?')">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <button class="btn block ghost" type="submit"><svg class="icon" aria-hidden="true"><use href="#i-logout"/></svg>Cerrar el panel en los demás equipos</button>
+    </form>
+  </section>
+
+  {{ install_box('panel') }}
+
+  <section class="card" id="ingresos">
+    <h2><svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg> Últimos ingresos al panel</h2>
+    {% if logins %}
+    <ul class="list">
+      {% for l in logins %}
+      <li>
+        <span class="main">
+          <strong>{{ l.created_at|fecha_hora }}</strong>
+          <small>{% if l.result == 'password' %}Contraseña incorrecta · {% elif l.result == 'code' %}Código incorrecto · {% endif %}{{ l.device }}{% if l.ip %} · {{ l.ip }}{% endif %}</small>
+        </span>
+        <span class="badge {{ 'faience' if l.result == 'ok' else 'st-cancelado' }}">{{ 'Entró' if l.result == 'ok' else 'Falló' }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    <p class="muted sec-text mt">Si ves ingresos que no reconoces: cambia la contraseña, activa la verificación en dos pasos y cierra el panel en los demás equipos.</p>
+    {% else %}
+    <p class="muted">Aún no hay ingresos registrados.</p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

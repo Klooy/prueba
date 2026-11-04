@@ -11,12 +11,13 @@
   <input type="hidden" name="csrf" value="{{ csrf_token }}">
   <div class="field">
     <label for="password">Contraseña</label>
-    <input id="password" name="password" type="password" autocomplete="{{ 'new-password' if first_run else 'current-password' }}" required autofocus>
+    <input id="password" name="password" type="password" autocomplete="{{ 'new-password' if first_run else 'current-password' }}"{% if first_run %} minlength="{{ password_min }}"{% endif %} required autofocus>
+    {% if first_run %}<small class="hint">Al menos {{ password_min }} caracteres. Mejor una frase que solo tú sepas.</small>{% endif %}
   </div>
   {% if first_run %}
   <div class="field">
     <label for="confirm">Repite la contraseña</label>
-    <input id="confirm" name="confirm" type="password" autocomplete="new-password" required>
+    <input id="confirm" name="confirm" type="password" autocomplete="new-password" minlength="{{ password_min }}" required>
   </div>
   {% endif %}
   <button class="btn block" type="submit">{% if first_run %}Crear y entrar{% else %}Entrar{% endif %}</button>

@@ -1,5 +1,6 @@
 {% extends "admin/_layout.html" %}
 {% from "_macros.html" import money_stat %}
+{% from "_install.html" import install_box with context %}
 {% block section %}inicio{% endblock %}
 {% block title %}Panel · {{ settings.store_name }}{% endblock %}
 {% block content %}
@@ -24,6 +25,30 @@
 </div>
 {% endif %}
 
+{% if security.failed %}{# intentos de entrar al panel que no fueron de la tienda #}
+{% set last = security.failed[-1] %}
+<div class="flash error notice security-notice" role="alert">
+  <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>
+  <div>
+    <strong>{{ security.failed|length }} {{ 'intento fallido' if security.failed|length == 1 else 'intentos fallidos' }} de entrar al panel</strong>
+    (el último: {{ last.created_at|fecha_hora }}, {{ last.device }}). Si no fuiste tú, cambia la contraseña{% if not security.totp %} y activa la verificación en dos pasos{% endif %}.
+    <div class="btn-row">
+      <a class="btn small" href="{{ url_for('admin_security') }}#ingresos">Ver ingresos</a>
+      <form method="post" action="{{ url_for('admin_alerts_seen') }}" class="inline">
+        <input type="hidden" name="csrf" value="{{ csrf_token }}">
+        <button class="btn small ghost" type="submit">Entendido</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% if security.short or not security.totp %}
+<div class="flash notice">
+  <svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg>
+  <span>{% if security.short %}Tu contraseña es corta: cámbiala por una de al menos {{ password_min }} caracteres. {% endif %}{% if not security.totp %}Protege el panel con la verificación en dos pasos: además de la contraseña, pedirá un código de tu celular. {% endif %}<a href="{{ url_for('admin_security') }}">Ir a Seguridad</a></span>
+</div>
+{% endif %}
+
 {% if settings.whatsapp %}{# pausa rápida para cuando no das abasto #}
 <section class="card orders-switch{% if not ordering.open %} is-closed{% endif %}">
   <div class="main">
@@ -37,6 +62,8 @@
   </form>
 </section>
 {% endif %}
+
+{{ install_box('panel', dismissible=True) }}
 
 <div class="stats">
   <div class="stat"><div class="num">{{ stats.customers }}</div><div class="lbl">Clientes</div></div>

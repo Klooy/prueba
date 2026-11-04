@@ -56,8 +56,11 @@ def post(client, path, data=None, **kw):
     return client.post(path, data=data, **kw)
 
 
+PASSWORD = "secreto-del-templo"
+
+
 def login(client):
-    return post(client, "/admin/login", {"password": "secreto1", "confirm": "secreto1"})
+    return post(client, "/admin/login", {"password": PASSWORD, "confirm": PASSWORD})
 
 
 def new_customer(client, name, phone, ref="", **amounts):
@@ -114,7 +117,7 @@ def test_first_run_then_login(client):
     post(client, "/admin/logout")
     assert post(client, "/admin/login", {"password": "malo"}).status_code == 200
     assert client.get("/admin").status_code == 302
-    assert post(client, "/admin/login", {"password": "secreto1"}).status_code == 302
+    assert post(client, "/admin/login", {"password": PASSWORD}).status_code == 302
 
 
 def test_referral_discounts_in_pesos_set_by_admin(app, client):
@@ -243,7 +246,7 @@ def test_product_lifecycle(client):
 def test_open_redirect_blocked(client):
     login(client)
     post(client, "/admin/logout")
-    resp = post(client, "/admin/login?next=//evil.com", {"password": "secreto1"})
+    resp = post(client, "/admin/login?next=//evil.com", {"password": PASSWORD})
     assert resp.headers["Location"].endswith("/admin")
 
 
@@ -285,9 +288,12 @@ def test_prices_in_cop(client):
     assert "$240.000<small>COP</small>" in html
 
 
-def test_admin_entry_visible_on_public_pages(client):
-    html = client.get("/").get_data(as_text=True)
-    assert html.count('href="/admin"') >= 2
+def test_admin_entry_only_shown_to_the_admin(app, client):
+    assert 'href="/admin"' not in client.get("/").get_data(as_text=True)         # la puerta: no se anuncia
+    public_menu(app)
+    assert 'href="/admin"' not in client.get("/").get_data(as_text=True)         # ni en el menú abierto
+    login(client)
+    assert client.get("/").get_data(as_text=True).count('href="/admin"') >= 2   # arriba y en el pie
 
 
 def test_redeem_all(app, client):
@@ -1272,7 +1278,7 @@ def test_guessing_codes_and_passwords_is_limited(app, client, monkeypatch):
     monkeypatch.setattr(app_module, "LOGIN_LIMIT", (2, 900))
     post(client, "/admin/login", {"password": "malo1"})
     post(client, "/admin/login", {"password": "malo2"})
-    html = post(client, "/admin/login", {"password": "secreto1"}).get_data(as_text=True)
+    html = post(client, "/admin/login", {"password": PASSWORD}).get_data(as_text=True)
     assert "Demasiados intentos" in html and client.get("/admin").status_code == 302
 
 
@@ -1538,3 +1544,254 @@ def test_summary_and_excel_backup(app, client):
     assert "#0001;" in pedidos and ";Confirmado;" in pedidos and ";Cancelado;" in pedidos
     assert client.get("/admin/respaldo/descuentos.csv").get_data(as_text=True).startswith("﻿Cliente;")
     assert client.get("/admin/respaldo/otra.csv").status_code == 404
+
+
+# ------------------------------------------------------- apps instalables y seguridad del panel
+
+def setting(app, key):
+    from app import get_settings
+    with app.app_context():
+        return get_settings().get(key)
+
+
+def put_setting(app, key, value):
+    from app import get_db, set_setting
+    with app.app_context():
+        set_setting(key, value)
+        get_db().commit()
+
+
+def totp_now(app, offset=0):
+    """El código que mostraría la app de códigos ahora (offset: intervalos de 30 s después)."""
+    import app as app_module
+    secret = setting(app, "admin_totp") or setting(app, "admin_totp_pending")
+    return app_module.totp_code(secret, int(app_module.unix_now() // 30) + offset)
+
+
+def freeze_clock(monkeypatch):
+    """Reloj fijo a mitad de un intervalo de 30 s: así ningún código cambia en medio de la prueba."""
+    import time
+    import app as app_module
+    moment = (int(time.time()) // 30) * 30 + 10.0
+    monkeypatch.setattr(app_module, "unix_now", lambda: moment)
+
+
+def test_installable_apps_and_offline_page(app, client):
+    from PIL import Image
+    shop = client.get("/manifest.webmanifest")
+    assert shop.status_code == 200 and shop.mimetype == "application/manifest+json"
+    data = shop.get_json(force=True)
+    assert (data["name"], data["start_url"], data["scope"], data["display"]) == ("Anubis Shop", "/", "/", "standalone")
+    panel = client.get("/admin/manifest.webmanifest").get_json(force=True)       # sin sesión: el navegador la pide así
+    assert (panel["name"], panel["start_url"], panel["scope"]) == ("Anubis Panel", "/admin", "/admin")
+    for manifest in (data, panel):
+        purposes = {icon["purpose"] for icon in manifest["icons"]}
+        assert purposes == {"any", "maskable"}
+        for icon in manifest["icons"]:
+            resp = client.get(icon["src"])
+            size = int(icon["sizes"].split("x")[0])
+            assert resp.status_code == 200 and Image.open(io.BytesIO(resp.data)).size == (size, size)
+            resp.close()
+
+    sw = client.get("/sw.js")
+    body = sw.get_data(as_text=True)
+    assert sw.mimetype == "text/javascript" and sw.headers["Cache-Control"] == "no-cache"
+    from app import asset_version
+    with app.app_context():
+        assert f'const CACHE = "anubis-{asset_version()}"' in body
+    files = json.loads(re.search(r"const FILES = (\[.*?\]);", body).group(1))
+    assert any(f.startswith("/static/css/anubis.css?v=") for f in files) and "/static/fonts/sora.woff2" in files
+    for path in files:                                                          # todo lo que guarda existe
+        resp = client.get(path)
+        assert resp.status_code == 200, path
+        resp.close()
+    assert not any(f in ("/", "/admin") or f.startswith(("/admin/", "/mi-codigo", "/p/")) for f in files)  # nada con datos
+
+    offline = client.get("/sin-conexion").get_data(as_text=True)
+    assert "Sin conexión" in offline and "Reintentar" in offline and 'href="/admin"' not in offline
+
+    gate = client.get("/").get_data(as_text=True)                               # la puerta del menú privado
+    assert '<link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">' in gate
+    assert 'img/app/shop-180.png' in gate and 'content="Anubis Shop"' in gate and "js/app.js" in gate
+    login(client)
+    dash = client.get("/admin").get_data(as_text=True)
+    assert 'href="/admin/manifest.webmanifest" crossorigin="use-credentials">' in dash and 'content="Anubis Panel"' in dash
+    assert 'data-install="panel" data-install-dismissible hidden' in dash         # lo muestra app.js
+    assert 'data-install="shop"' not in client.get("/").get_data(as_text=True)   # la tienda instala la del panel
+
+    ana = new_customer(client, "Ana", "3001112222")
+    visitor = app.test_client()
+    post(visitor, "/mi-codigo", {"code": code_of(app, ana)})
+    assert 'data-install="shop" data-install-dismissible hidden' in visitor.get("/").get_data(as_text=True)
+    assert 'data-install="shop" hidden' in visitor.get("/mi-codigo").get_data(as_text=True)
+
+
+def test_totp_matches_the_standard():
+    import base64
+    from app import check_totp, totp_code
+    secret = base64.b32encode(b"12345678901234567890").decode()                # vectores del RFC 6238 (SHA-1)
+    assert [totp_code(secret, t // 30) for t in (59, 1111111109, 1234567890, 2000000000)] == [
+        "287082", "081804", "005924", "279037"]
+    assert check_totp(secret, "") is None and check_totp("", "123456") is None
+
+
+def test_two_step_verification(app, client, monkeypatch):
+    freeze_clock(monkeypatch)
+    login(client)
+    other = app.test_client()                                                  # el panel abierto en otro equipo
+    post(other, "/admin/login", {"password": PASSWORD})
+    assert other.get("/admin").status_code == 200
+    assert "Apagada" in client.get("/admin/seguridad").get_data(as_text=True)
+    assert "verificación en dos pasos" in client.get("/admin").get_data(as_text=True)    # se recomienda
+
+    setup = client.get("/admin/seguridad/dos-pasos").get_data(as_text=True)
+    secret = setting(app, "admin_totp_pending")
+    assert len(secret) == 32 and secret in setup and '<svg class="qr"' in setup
+    assert f"otpauth://totp/Anubis%20Panel:admin?secret={secret}&amp;issuer=Anubis%20Panel" in setup
+    assert client.get("/admin/seguridad/dos-pasos").get_data(as_text=True).count(secret) >= 1   # la misma clave
+    html = post(client, "/admin/seguridad/dos-pasos", {"code": "000000"}).get_data(as_text=True)
+    assert "no coincide" in html and not setting(app, "admin_totp")
+    html = post(client, "/admin/seguridad/dos-pasos", {"code": totp_now(app)}).get_data(as_text=True)
+    codes = re.findall(r"<code>([A-Z0-9]{4}-[A-Z0-9]{4})</code>", html)
+    assert len(codes) == 8 and len(set(codes)) == 8 and "la verificación en dos pasos está activa" in html
+    assert setting(app, "admin_totp") == secret and not setting(app, "admin_totp_pending")
+    assert len(json.loads(setting(app, "admin_recovery"))) == 8 and codes[0] not in setting(app, "admin_recovery")
+    assert client.get("/admin").status_code == 200                              # aquí sigue dentro
+    assert other.get("/admin").status_code == 302                               # en el otro equipo se cerró
+    assert "Activa" in client.get("/admin/seguridad").get_data(as_text=True)
+
+    # Entrar: contraseña y luego el código (no basta la contraseña).
+    post(client, "/admin/logout")
+    resp = post(client, "/admin/login", {"password": PASSWORD})
+    assert resp.headers["Location"].endswith("/admin/login/codigo")
+    assert client.get("/admin").status_code == 302
+    page = client.get("/admin/login/codigo").get_data(as_text=True)
+    assert "Código de 6 dígitos" in page and 'autocomplete="one-time-code"' in page
+    used = totp_now(app)                                                       # ya se usó al activarla
+    assert "Código incorrecto" in post(client, "/admin/login/codigo", {"code": used}).get_data(as_text=True)
+    resp = post(client, "/admin/login/codigo", {"code": totp_now(app, 1)})    # el reloj del celular va adelantado
+    assert resp.status_code == 302 and client.get("/admin").status_code == 200
+
+    # Con un código de respaldo (perdió el celular): sirve una sola vez.
+    post(client, "/admin/logout")
+    post(client, "/admin/login", {"password": PASSWORD})
+    resp = post(client, "/admin/login/codigo", {"code": codes[0].lower().replace("-", " ")}, follow_redirects=True)
+    assert "Entraste con un código de respaldo: te quedan 7" in resp.get_data(as_text=True)
+    post(client, "/admin/logout")
+    post(client, "/admin/login", {"password": PASSWORD})
+    assert "Código incorrecto" in post(client, "/admin/login/codigo", {"code": codes[0]}).get_data(as_text=True)
+
+    # Cinco códigos malos (con el de respaldo ya usado): vuelve a pedir la contraseña.
+    for _ in range(3):
+        post(client, "/admin/login/codigo", {"code": "111111"})
+    resp = post(client, "/admin/login/codigo", {"code": "111111"}, follow_redirects=True)
+    assert "Demasiados códigos incorrectos" in resp.get_data(as_text=True)
+    assert client.get("/admin/login/codigo").headers["Location"].endswith("/admin/login")
+
+    # El código vence a los 5 minutos de escribir la contraseña.
+    import time
+    post(client, "/admin/login", {"password": PASSWORD})
+    with client.session_transaction() as s:
+        s["admin_pending"] = {**s["admin_pending"], "at": time.time() - 301}
+    assert client.get("/admin/login/codigo").headers["Location"].endswith("/admin/login")
+
+    # Códigos de respaldo nuevos y apagarla: piden un código.
+    post(client, "/admin/login", {"password": PASSWORD})
+    post(client, "/admin/login/codigo", {"code": codes[1]})
+    assert client.get("/admin").status_code == 200
+    html = post(client, "/admin/seguridad/codigos", {"code": "123456"}, follow_redirects=True).get_data(as_text=True)
+    assert "Código incorrecto" in html
+    html = post(client, "/admin/seguridad/codigos", {"code": codes[2]}).get_data(as_text=True)
+    fresh = re.findall(r"<code>([A-Z0-9]{4}-[A-Z0-9]{4})</code>", html)
+    assert len(fresh) == 8 and not set(fresh) & set(codes)
+    put_setting(app, "admin_totp_step", "0")                                   # ya pasaron los 30 segundos
+    resp = post(client, "/admin/seguridad/dos-pasos/apagar", {"code": codes[3]}, follow_redirects=True)
+    assert "Código incorrecto" in resp.get_data(as_text=True) and setting(app, "admin_totp")   # los viejos ya no
+    resp = post(client, "/admin/seguridad/dos-pasos/apagar", {"code": totp_now(app)}, follow_redirects=True)
+    assert "Apagaste la verificación en dos pasos" in resp.get_data(as_text=True) and not setting(app, "admin_totp")
+    post(client, "/admin/logout")
+    assert post(client, "/admin/login", {"password": PASSWORD}).headers["Location"].endswith("/admin")
+
+
+def test_login_log_lockout_and_sessions(app, client, monkeypatch):
+    import app as app_module
+    login(client)
+    assert post(client, "/admin/logout").headers["Location"].endswith("/admin/login")
+    client.environ_base["HTTP_USER_AGENT"] = (
+        "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Mobile Safari/537.36")
+    post(client, "/admin/login", {"password": "me-equivoque"})                 # la tienda se equivoca...
+    post(client, "/admin/login", {"password": PASSWORD})                        # ...y entra enseguida
+    stranger = app.test_client()
+    stranger.environ_base.update(REMOTE_ADDR="203.0.113.9", HTTP_USER_AGENT=(
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) "
+        "Version/17.5 Mobile/15E148 Safari/604.1"))
+    for guess in ("anubis123", "templo2024"):
+        assert "Contraseña incorrecta" in post(stranger, "/admin/login", {"password": guess}).get_data(as_text=True)
+
+    dash = client.get("/admin").get_data(as_text=True)
+    assert "2 intentos fallidos de entrar al panel" in dash and "iPhone · Safari" in dash   # solo los del extraño
+    log = client.get("/admin/seguridad").get_data(as_text=True)
+    assert log.count("Contraseña incorrecta · ") == 3 and "Android · Chrome" in log and "203.0.113.9" in log
+    post(client, "/admin/seguridad/visto")
+    assert "intentos fallidos" not in client.get("/admin").get_data(as_text=True)
+
+    # Freno por conexión, contado en la base: sirve aunque cada instancia de Vercel tenga su memoria.
+    monkeypatch.setattr(app_module, "LOGIN_LIMIT", (3, 900))
+    post(stranger, "/admin/login", {"password": "otra-mas"})
+    twin = create_app({"DATABASE": app.config["DATABASE"], "DATABASE_URL": app.config["DATABASE_URL"],
+                       "UPLOAD_FOLDER": app.config["UPLOAD_FOLDER"], "SECRET_KEY": "test"}).test_client()
+    twin.environ_base["REMOTE_ADDR"] = "203.0.113.9"
+    html = post(twin, "/admin/login", {"password": PASSWORD}).get_data(as_text=True)
+    assert "Demasiados intentos" in html and twin.get("/admin").status_code == 302   # ni con la buena
+    friend = app.test_client()
+    assert post(friend, "/admin/login", {"password": PASSWORD}).status_code == 302   # otra conexión sí entra
+    monkeypatch.undo()
+
+    # Cerrar el panel en los demás equipos.
+    assert friend.get("/admin").status_code == 200
+    post(client, "/admin/seguridad/cerrar-sesiones")
+    assert friend.get("/admin").status_code == 302 and client.get("/admin").status_code == 200
+
+    # Cambiar la contraseña: pide la actual, 10 caracteres o más y cierra las otras sesiones.
+    post(friend, "/admin/login", {"password": PASSWORD})
+    for data, error in (({"current": "nop", "new_password": "nueva-clave-larga", "confirm": "nueva-clave-larga"}, "no es esa"),
+                        ({"current": PASSWORD, "new_password": "corta", "confirm": "corta"}, "al menos 10"),
+                        ({"current": PASSWORD, "new_password": "nueva-clave-larga", "confirm": "otra"}, "no coinciden")):
+        resp = post(client, "/admin/seguridad/contrasena", data, follow_redirects=True)
+        assert error in resp.get_data(as_text=True)
+    resp = post(client, "/admin/seguridad/contrasena",
+                {"current": PASSWORD, "new_password": "nueva-clave-larga", "confirm": "nueva-clave-larga"},
+                follow_redirects=True)
+    assert "Contraseña cambiada" in resp.get_data(as_text=True)
+    assert friend.get("/admin").status_code == 302 and client.get("/admin").status_code == 200
+    assert post(friend, "/admin/login", {"password": PASSWORD}).status_code == 200    # la vieja ya no
+    assert post(friend, "/admin/login", {"password": "nueva-clave-larga"}).status_code == 302
+
+    # Una contraseña corta de antes (por ejemplo, la de ADMIN_PASSWORD): se pide cambiarla.
+    from werkzeug.security import generate_password_hash
+    put_setting(app, "admin_password", generate_password_hash("corta123"))
+    post(friend, "/admin/logout")
+    post(friend, "/admin/login", {"password": "corta123"})
+    assert "Tu contraseña es corta" in friend.get("/admin").get_data(as_text=True)
+
+    # Una sesión de antes de esta versión (sin admin_v) ya no abre el panel.
+    old = app.test_client()
+    with old.session_transaction() as s:
+        s["admin"] = True
+    assert old.get("/admin").status_code == 302
+    assert client.get("/admin/login").headers["Location"].endswith("/admin")   # ya dentro: al panel
+
+
+def test_security_headers_and_secrets_out_of_pages(app, client):
+    page = client.get("/")
+    assert page.headers["X-Frame-Options"] == "DENY" and "frame-ancestors 'none'" in page.headers["Content-Security-Policy"]
+    assert page.headers["X-Content-Type-Options"] == "nosniff" and page.headers["Referrer-Policy"] == "same-origin"
+    assert "no-store" not in page.headers.get("Cache-Control", "")
+    login(client)
+    assert client.get("/admin").headers["Cache-Control"] == "no-store"
+    from app import template_settings
+    with app.app_context():
+        assert not [k for k in template_settings() if k.startswith("admin_")]
+    html = post(client, "/admin/ajustes", {"store_name": "X", "whatsapp": "123"}).get_data(as_text=True)
+    assert "Escribe el WhatsApp" in html and "scrypt:" not in html and "pbkdf2:" not in html
+    assert 'name="new_password"' not in html and 'href="/admin/seguridad"' in html   # la contraseña va en Seguridad

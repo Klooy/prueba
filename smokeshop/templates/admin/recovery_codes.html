@@ -1,0 +1,30 @@
+{% extends "admin/_layout.html" %}
+{% block section %}ajustes{% endblock %}
+{% block title %}Códigos de respaldo · {{ settings.store_name }}{% endblock %}
+{% block content %}
+<div class="page-head"><h1>Códigos de respaldo</h1></div>
+
+<div class="narrow">
+  <section class="card gilded">
+    {% if first %}
+    <div class="flash ok sec-flash">
+      <svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>
+      <span>Listo: la verificación en dos pasos está activa, y el panel se cerró en los demás equipos.</span>
+    </div>
+    {% endif %}
+    <p class="sec-text">Si pierdes el celular, cada uno de estos códigos te deja entrar <strong>una sola vez</strong>. Guárdalos fuera del celular, por ejemplo anotados en papel.</p>
+    <ol class="recovery-codes">
+      {% for c in codes %}<li><code>{{ c }}</code></li>{% endfor %}
+    </ol>
+    <textarea id="codes" class="sr-only" readonly aria-hidden="true" tabindex="-1">{{ codes|join('\n') }}</textarea>
+    <div class="btn-row">
+      <button class="btn small ghost" type="button" data-copy="codes"><svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg>Copiar</button>
+      <a class="btn small ghost" download="anubis-panel-codigos.txt"
+         href="data:text/plain;charset=utf-8,{{ ('Códigos de respaldo de ' ~ app_names.panel ~ ' (cada uno sirve una vez)\n\n' ~ codes|join('\n') ~ '\n')|urlencode }}"><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg>Descargar</a>
+    </div>
+    <p class="muted sec-text mt">No los volverás a ver aquí. Si los pierdes, crea códigos nuevos en Seguridad.</p>
+    <a class="btn block mt" href="{{ url_for('admin_security') }}">Ya los guardé</a>
+  </section>
+</div>
+{% endblock %}
+{% block scripts %}{% include "_copy.html" %}{% endblock %}
